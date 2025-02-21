@@ -1,3 +1,3 @@
-from .generate import crawl
+from .generate import crawl_package
 
-__all__ = ["crawl"]
+__all__ = ["crawl_package"]
