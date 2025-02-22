@@ -347,7 +347,7 @@ def crawl_package(package_path: Path) -> Package:
     return package
 
 
-def reformat_docstring(doc: docstring_parser.Docstring | None) -> str:
+def reformat_docstring(doc: docstring_parser.Docstring | None, signature: str | None = None) -> str:
     """
     Reformat the parsed docstring into Markdown.
     This implementation produces Markdown by concatenating the short and long descriptions,
@@ -362,13 +362,19 @@ def reformat_docstring(doc: docstring_parser.Docstring | None) -> str:
     if doc.long_description:
         lines.append(doc.long_description)
         lines.append("")
+    if signature:
+        lines.append("**Signature:**")
+        lines.append("")
+        lines.append("```python")
+        lines.append(signature)
+        lines.append("```")
     if doc.params:
         lines.append("**Parameters:**")
         lines.append("")
         for param in doc.params:
-            param_line = f"- **{param.arg_name}**"
+            param_line = f"- `{param.arg_name}`"
             if param.type_name:
-                param_line += f" ({param.type_name})"
+                param_line += f" (**{param.type_name}**)"
             param_line += f": {param.description}"
             lines.append(param_line)
         lines.append("")
@@ -377,14 +383,14 @@ def reformat_docstring(doc: docstring_parser.Docstring | None) -> str:
         lines.append("")
         ret_line = "- "
         if doc.returns.type_name:
-            ret_line += f"({doc.returns.type_name}) "
+            ret_line += f"(**{doc.returns.type_name}**) "
         ret_line += f"{doc.returns.description}"
         lines.append(ret_line)
         lines.append("")
     if doc.raises:
         lines.append("**Raises:**")
         for exception in doc.raises:
-            lines.append(f"- **{exception.type_name}**: {exception.description}")
+            lines.append(f"- (**{exception.type_name}**) {exception.description}")
         lines.append("")
     return "\n".join(lines).strip()
 
@@ -400,10 +406,9 @@ class Renderer:
 
 
 class MarkdownRenderer(Renderer):
-    def __init__(self, exclude_empty: bool = False):
+    def __init__(self):
         # List of tuples: (level, title, slug)
         self.toc: list[tuple[int, str, str]] = []
-        self.exclude_empty = exclude_empty
 
     @staticmethod
     def slugify(text: str) -> str:
@@ -427,7 +432,7 @@ class MarkdownRenderer(Renderer):
         """
         slug = self.slugify(item.name)
         self.toc.append((level, item.name, slug))
-        return [f'<a id="{slug}"></a>', f"{'#' * level} {item.name}"]
+        return [f'<a id="{slug}"></a>', f"{'#' * level} `{item.fully_qualified_name}`"]
 
     def render_toc(self) -> list[str]:
         """Render the table of contents based on the collected headers."""
@@ -435,11 +440,11 @@ class MarkdownRenderer(Renderer):
         title = "Table of Contents"
         slug = self.slugify(title)
         lines.append(f'<a id="{slug}"></a>')
-        lines.append(f"### {title}")
+        lines.append(f"**{title}**")
         lines.append("")
         for level, title, slug in self.toc:
             indent = "  " * (level - 1)
-            lines.append(f"{indent}- [{title}](#{slug})")
+            lines.append(f"{indent}- [`{title}`](#{slug})")
         lines.append("")
         return lines
 
@@ -448,14 +453,6 @@ class MarkdownRenderer(Renderer):
         lines = []
         # Render constant header with its fully qualified name.
         lines.extend(self.render_header(heading_level, const))
-        lines.append("")
-        lines.append("**Import**")
-        lines.append("")
-        lines.append(f"```python")
-        lines.append(f"import {const.fully_qualified_name}")
-        lines.append("```")
-        lines.append("")
-        lines.append("**Signature**")
         lines.append("")
         lines.append("```python")
         if const.type:
@@ -468,18 +465,10 @@ class MarkdownRenderer(Renderer):
 
     def render_function(self, func: Function, heading_level: int) -> list[str]:
         """Render a function or method to Markdown and return the lines as a list of strings."""
-        doc = reformat_docstring(func.docstring)
-        if self.exclude_empty and not doc:
-            return []
+        doc = reformat_docstring(func.docstring, func.signature)
         lines = []
         # For functions, override the header title to wrap the name in backticks.
         lines.extend(self.render_header(heading_level, func))
-        lines.append("")
-        lines.append("**Signature**")
-        lines.append("")
-        lines.append("```python")
-        lines.append(func.signature)
-        lines.append("```")
         lines.append("")
         if doc:
             lines.append(doc)
@@ -496,13 +485,7 @@ class MarkdownRenderer(Renderer):
         md = []
         md.extend(self.render_header(heading_level, cls))
         md.append("")
-        md.append("**Signature**")
-        md.append("")
-        md.append("```python")
-        md.append(cls.signature)
-        md.append("```")
-        md.append("")
-        doc = reformat_docstring(cls.docstring)
+        doc = reformat_docstring(cls.docstring, cls.signature)
         if doc:
             md.append(doc)
             md.append("")
@@ -599,7 +582,7 @@ def main() -> None:
         return
 
     package = crawl_package(package_dir)
-    renderer = MarkdownRenderer(exclude_empty=args.exclude_empty)
+    renderer = MarkdownRenderer()
     markdown_output = renderer.render(package)
     print(markdown_output)
 

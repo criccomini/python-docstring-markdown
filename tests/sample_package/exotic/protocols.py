@@ -12,12 +12,6 @@ from typing import Protocol, runtime_checkable
 class Loggable(Protocol):
     """Protocol for objects that can be logged.
 
-    Args:
-        None
-
-    Returns:
-        str: A string representation suitable for logging
-
     Example:
         >>> class MyClass(Loggable):
         ...     def log_format(self) -> str:
