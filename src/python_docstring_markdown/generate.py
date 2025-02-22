@@ -368,20 +368,6 @@ def reformat_docstring(doc: docstring_parser.Docstring | None, signature: str | 
         lines.append("```python")
         lines.append(signature)
         lines.append("```")
-    if doc.attrs:
-        lines.append("**Attributes:**")
-        lines.append("")
-        for attr in doc.attrs:
-            attr_line = f"- `{attr.arg_name}`"
-            if attr.type_name:
-                attr_line += f" (**{attr.type_name}**)"
-            attr_line += f": {attr.description}"
-            if attr.default:
-                attr_line += f" (default: `{attr.default}`)"
-            if attr.is_optional:
-                attr_line += " (optional)"
-            lines.append(attr_line)
-        lines.append("")
     if doc.params:
         lines.append("**Parameters:**")
         lines.append("")
