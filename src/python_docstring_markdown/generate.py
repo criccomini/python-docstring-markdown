@@ -91,6 +91,7 @@ class Constant:
 
 # --- Helper functions ---
 
+
 def get_string_value(node: ast.AST) -> str | None:
     """Extract a string from an AST node representing a constant."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -348,6 +349,7 @@ def crawl_package(package_path: Path) -> Package:
 
 # --- Renderer Classes ---
 
+
 class Renderer:
     def render(self, package: Package) -> str:
         """Render the Package as a string.
@@ -596,6 +598,7 @@ class MarkdownRenderer(Renderer):
 
 
 # --- Main function ---
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
