@@ -12,13 +12,6 @@ from typing import Any, Dict
 class BaseModel:
     """Base model class for all data models.
 
-    Parameters
-    ----------
-    id : str
-        Unique identifier for the model
-    created_at : datetime
-        Timestamp when the model was created
-
     Attributes
     ----------
     id : str
@@ -44,26 +37,6 @@ class BaseModel:
 class User(BaseModel):
     """User model representing system users.
 
-    Parameters
-    ----------
-    id : str
-        Unique identifier for the user
-    username : str
-        User's username
-    email : str
-        User's email address
-    active : bool, optional
-        Whether the user is active, by default True
-
-    Attributes
-    ----------
-    username : str
-        User's username
-    email : str
-        User's email address
-    active : bool
-        User's active status
-
     Examples
     --------
     >>> user = User("123", "johndoe", "john@example.com")
@@ -72,6 +45,27 @@ class User(BaseModel):
     """
 
     def __init__(self, id: str, username: str, email: str, active: bool = True):
+        """
+        Parameters
+        ----------
+        id : str
+            Unique identifier for the user
+        username : str
+            User's username
+        email : str
+            User's email address
+        active : bool, optional
+            Whether the user is active, by default True
+
+        Attributes
+        ----------
+        username : str
+            User's username
+        email : str
+            User's email address
+        active : bool
+            User's active status
+        """
         super().__init__(id)
         self.username = username
         self.email = email
