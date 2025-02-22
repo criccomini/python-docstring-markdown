@@ -347,63 +347,6 @@ def crawl_package(package_path: Path) -> Package:
     return package
 
 
-def reformat_docstring(doc: docstring_parser.Docstring | None, signature: str | None = None) -> str:
-    """
-    Reformat the parsed docstring into Markdown.
-    This implementation produces Markdown by concatenating the short and long descriptions,
-    and listing parameters (with types if available), return info (with type), and exceptions.
-    """
-    if doc is None:
-        return ""
-    lines = []
-    if doc.short_description:
-        lines.append(doc.short_description)
-        lines.append("")
-    if doc.long_description:
-        lines.append(doc.long_description)
-        lines.append("")
-    if signature:
-        lines.append("**Signature:**")
-        lines.append("")
-        lines.append("```python")
-        lines.append(signature)
-        lines.append("```")
-    if doc.params:
-        lines.append("**Parameters:**")
-        lines.append("")
-        for param in doc.params:
-            param_line = f"- `{param.arg_name}`"
-            if param.type_name:
-                param_line += f" (**{param.type_name}**)"
-            param_line += f": {param.description}"
-            lines.append(param_line)
-        lines.append("")
-    if doc.examples:
-        lines.append("**Examples:**")
-        lines.append("")
-        for example in doc.examples:
-            if example.snippet:
-                lines.append("```python")
-                lines.append(example.snippet)
-                lines.append("```")
-                lines.append("")
-    if doc.returns:
-        lines.append("**Returns:**")
-        lines.append("")
-        ret_line = "- "
-        if doc.returns.type_name:
-            ret_line += f"(**{doc.returns.type_name}**) "
-        ret_line += f"{doc.returns.description}"
-        lines.append(ret_line)
-        lines.append("")
-    if doc.raises:
-        lines.append("**Raises:**")
-        for exception in doc.raises:
-            lines.append(f"- (**{exception.type_name}**) {exception.description}")
-        lines.append("")
-    return "\n".join(lines).strip()
-
-
 # --- Renderer Classes ---
 
 
@@ -427,6 +370,66 @@ class MarkdownRenderer(Renderer):
         text = re.sub(r"[^a-z0-9\s-]", "", text)
         text = re.sub(r"\s+", "-", text).strip("-")
         return text
+
+    def render_docstring(
+        self,
+        doc: docstring_parser.Docstring | None,
+        signature: str | None = None,
+    ) -> str:
+        """
+        Reformat the parsed docstring into Markdown.
+        This implementation produces Markdown by concatenating the short and long descriptions,
+        and listing parameters (with types if available), return info (with type), and exceptions.
+        """
+        if doc is None:
+            return ""
+        lines = []
+        if doc.short_description:
+            lines.append(doc.short_description)
+            lines.append("")
+        if doc.long_description:
+            lines.append(doc.long_description)
+            lines.append("")
+        if signature:
+            lines.append("**Signature:**")
+            lines.append("")
+            lines.append("```python")
+            lines.append(signature)
+            lines.append("```")
+        if doc.params:
+            lines.append("**Parameters:**")
+            lines.append("")
+            for param in doc.params:
+                param_line = f"- `{param.arg_name}`"
+                if param.type_name:
+                    param_line += f" (**{param.type_name}**)"
+                param_line += f": {param.description}"
+                lines.append(param_line)
+            lines.append("")
+        if doc.examples:
+            lines.append("**Examples:**")
+            lines.append("")
+            for example in doc.examples:
+                if example.snippet:
+                    lines.append("```python")
+                    lines.append(example.snippet)
+                    lines.append("```")
+                    lines.append("")
+        if doc.returns:
+            lines.append("**Returns:**")
+            lines.append("")
+            ret_line = "- "
+            if doc.returns.type_name:
+                ret_line += f"(**{doc.returns.type_name}**) "
+            ret_line += f"{doc.returns.description}"
+            lines.append(ret_line)
+            lines.append("")
+        if doc.raises:
+            lines.append("**Raises:**")
+            for exception in doc.raises:
+                lines.append(f"- (**{exception.type_name}**) {exception.description}")
+            lines.append("")
+        return "\n".join(lines).strip()
 
     def render_header(
         self,
@@ -474,7 +477,7 @@ class MarkdownRenderer(Renderer):
 
     def render_function(self, func: Function, heading_level: int) -> list[str]:
         """Render a function or method to Markdown and return the lines as a list of strings."""
-        doc = reformat_docstring(func.docstring, func.signature)
+        doc = self.render_docstring(func.docstring, func.signature)
         lines = []
         # For functions, override the header title to wrap the name in backticks.
         lines.extend(self.render_header(heading_level, func))
@@ -494,7 +497,7 @@ class MarkdownRenderer(Renderer):
         md = []
         md.extend(self.render_header(heading_level, cls))
         md.append("")
-        doc = reformat_docstring(cls.docstring, cls.signature)
+        doc = self.render_docstring(cls.docstring, cls.signature)
         if doc:
             md.append(doc)
             md.append("")
@@ -519,7 +522,7 @@ class MarkdownRenderer(Renderer):
         lines.extend(self.render_header(2, module))
         lines.append("")
 
-        module_doc = reformat_docstring(module.docstring)
+        module_doc = self.render_docstring(module.docstring)
         if module_doc:
             lines.append(module_doc)
             lines.append("")
