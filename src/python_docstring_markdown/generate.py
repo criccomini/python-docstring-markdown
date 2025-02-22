@@ -9,6 +9,8 @@ Additional features:
   - For each function/method, its signature is included with type hints (if present) and its return type.
   - Autodetects docstring formats (Google-style, NumPy-style, etc.) and reformats them into Markdown.
   - Constants are detected and their types are included when available.
+  - Classes now include a signature (showing base classes) and are rendered with their signature.
+  - Parameter and return sections now include type information when available.
 """
 
 from __future__ import annotations
@@ -40,10 +42,10 @@ class Package:
 @dataclass
 class Module:
     path: Path
-    name: str  # final module name (file stem)
-    fully_qualified_name: (
-        str  # e.g. package_name.module or just package_name for __init__
-    )
+    # final module name (file stem)
+    name: str
+    # e.g. package_name.module or just package_name for __init__
+    fully_qualified_name: str
     package: Package
     docstring: docstring_parser.Docstring | None = None
     constants: list[Constant] = field(default_factory=list)
@@ -55,11 +57,14 @@ class Module:
 @dataclass
 class Class:
     path: Path
-    name: str  # final class name
-    fully_qualified_name: str  # e.g. foo.bar.Baz
-    parent: (
-        Module | Class
-    )  # Can be either a module or another class (for nested classes)
+    # final class name
+    name: str
+    # e.g. foo.bar.Baz
+    fully_qualified_name: str
+    # the class signature (including base classes)
+    signature: str
+    # Can be either a module or another class (for nested classes)
+    parent: Module | Class
     docstring: docstring_parser.Docstring | None = None
     functions: list[Function] = field(default_factory=list)
     classes: list[Class] = field(default_factory=list)  # For nested classes
@@ -168,10 +173,17 @@ def parse_class(node: ast.ClassDef, parent: Module | Class, file_path: Path) -> 
     raw_doc = ast.get_docstring(node)
     parsed_doc = docstring_parser.parse(raw_doc) if raw_doc else None
     fq_name = f"{parent.fully_qualified_name}.{node.name}"
+    # Build a signature for the class, including base classes if any.
+    if node.bases:
+        bases = ", ".join(ast.unparse(base) for base in node.bases)
+        signature = f"class {node.name}({bases}):"
+    else:
+        signature = f"class {node.name}:"
     cls = Class(
         path=file_path,
         name=node.name,
         fully_qualified_name=fq_name,
+        signature=signature,
         parent=parent,
         docstring=parsed_doc,
         functions=[],
@@ -211,7 +223,9 @@ def parse_module_exports(module_ast: ast.Module) -> list[str]:
 
 
 def parse_module_constants(
-    module_ast: ast.Module, module: Module, file_path: Path
+    module_ast: ast.Module,
+    module: Module,
+    file_path: Path,
 ) -> None:
     """Parse constants defined in a module.
 
@@ -268,7 +282,9 @@ def parse_module_constants(
 
 
 def parse_module_functions(
-    module_ast: ast.Module, module: Module, file_path: Path
+    module_ast: ast.Module,
+    module: Module,
+    file_path: Path,
 ) -> None:
     """Parse top-level functions in a module."""
     for node in module_ast.body:
@@ -278,7 +294,9 @@ def parse_module_functions(
 
 
 def parse_module_classes(
-    module_ast: ast.Module, module: Module, file_path: Path
+    module_ast: ast.Module,
+    module: Module,
+    file_path: Path,
 ) -> None:
     """Parse classes in a module."""
     for node in module_ast.body:
@@ -309,7 +327,7 @@ def parse_module(file_path: Path, package: Package) -> Module:
         classes=[],
         exports=[],
     )
-    if file_path.name == "__init__.py":
+    if file_path.name == "__init__":
         module.exports = parse_module_exports(module_ast)
     parse_module_constants(module_ast, module, file_path)
     parse_module_functions(module_ast, module, file_path)
@@ -333,30 +351,41 @@ def reformat_docstring(doc: docstring_parser.Docstring | None) -> str:
     """
     Reformat the parsed docstring into Markdown.
     This implementation produces Markdown by concatenating the short and long descriptions,
-    and listing parameters, return info, and exceptions.
+    and listing parameters (with types if available), return info (with type), and exceptions.
     """
     if doc is None:
         return ""
     lines = []
     if doc.short_description:
         lines.append(doc.short_description)
+        lines.append("")
     if doc.long_description:
-        lines.append("")
         lines.append(doc.long_description)
+        lines.append("")
     if doc.params:
-        lines.append("")
         lines.append("**Parameters:**")
+        lines.append("")
         for param in doc.params:
-            lines.append(f"- **{param.arg_name}**: {param.description}")
+            param_line = f"- **{param.arg_name}**"
+            if param.type_name:
+                param_line += f" ({param.type_name})"
+            param_line += f": {param.description}"
+            lines.append(param_line)
+        lines.append("")
     if doc.returns:
-        lines.append("")
         lines.append("**Returns:**")
-        lines.append(f"- {doc.returns.description}")
-    if doc.raises:
         lines.append("")
+        ret_line = "- "
+        if doc.returns.type_name:
+            ret_line += f"({doc.returns.type_name}) "
+        ret_line += f"{doc.returns.description}"
+        lines.append(ret_line)
+        lines.append("")
+    if doc.raises:
         lines.append("**Raises:**")
         for exception in doc.raises:
             lines.append(f"- **{exception.type_name}**: {exception.description}")
+        lines.append("")
     return "\n".join(lines).strip()
 
 
@@ -386,18 +415,19 @@ class MarkdownRenderer(Renderer):
         return text
 
     def render_header(
-        self, level: int, item: DocumentedItem, title_override: str | None = None
+        self,
+        level: int,
+        item: DocumentedItem,
     ) -> list[str]:
         """
         Render a header using a documented data class.
-        Uses the item's fully qualified name (slugified) as the anchor, and the title_override
+        Uses the item's name (slugified) as the anchor, and the title_override
         if provided; otherwise uses the item's name.
         Records the header in the TOC and returns a list of Markdown lines.
         """
-        title = title_override if title_override is not None else item.name
-        slug = self.slugify(item.fully_qualified_name)
-        self.toc.append((level, title, slug))
-        return [f'<a id="{slug}"></a>', f"{'#' * level} {title}"]
+        slug = self.slugify(item.name)
+        self.toc.append((level, item.name, slug))
+        return [f'<a id="{slug}"></a>', f"{'#' * level} {item.name}"]
 
     def render_toc(self) -> list[str]:
         """Render the table of contents based on the collected headers."""
@@ -417,9 +447,15 @@ class MarkdownRenderer(Renderer):
         """Render a constant to Markdown and return the lines as a list of strings."""
         lines = []
         # Render constant header with its fully qualified name.
-        lines.extend(
-            self.render_header(heading_level, const, title_override=f"`{const.name}`")
-        )
+        lines.extend(self.render_header(heading_level, const))
+        lines.append("")
+        lines.append("**Import**")
+        lines.append("")
+        lines.append(f"```python")
+        lines.append(f"import {const.fully_qualified_name}")
+        lines.append("```")
+        lines.append("")
+        lines.append("**Signature**")
         lines.append("")
         lines.append("```python")
         if const.type:
@@ -437,23 +473,40 @@ class MarkdownRenderer(Renderer):
             return []
         lines = []
         # For functions, override the header title to wrap the name in backticks.
-        lines.extend(
-            self.render_header(heading_level, func, title_override=f"`{func.name}`")
-        )
+        lines.extend(self.render_header(heading_level, func))
+        lines.append("")
+        lines.append("**Signature**")
         lines.append("")
         lines.append("```python")
         lines.append(func.signature)
         lines.append("```")
         lines.append("")
         if doc:
-            lines.append("**Docstring:**")
-            lines.append("")
             lines.append(doc)
             lines.append("")
         return lines
 
     def render_class(self, cls: Class, heading_level: int) -> list[str]:
-        """Recursively render a class, its methods, and nested classes."""
+        """Recursively render a class, its signature, its methods, and nested classes.
+
+        Note: The header for the class is rendered before its children, so that it appears
+        correctly in the table of contents.
+        """
+        # Render the class header first.
+        md = []
+        md.extend(self.render_header(heading_level, cls))
+        md.append("")
+        md.append("**Signature**")
+        md.append("")
+        md.append("```python")
+        md.append(cls.signature)
+        md.append("```")
+        md.append("")
+        doc = reformat_docstring(cls.docstring)
+        if doc:
+            md.append(doc)
+            md.append("")
+        # Then render its children.
         child_lines = []
         for method in cls.functions:
             rendered = self.render_function(method, heading_level=heading_level + 1)
@@ -464,22 +517,26 @@ class MarkdownRenderer(Renderer):
             if rendered:
                 child_lines.extend(rendered)
                 child_lines.append("")
-        doc = reformat_docstring(cls.docstring)
-        if self.exclude_empty and not doc and not child_lines:
-            return []
-        md = []
-        md.extend(self.render_header(heading_level, cls))
-        md.append("")
-        if doc:
-            md.append("**Docstring:**")
-            md.append("")
-            md.append(doc)
-            md.append("")
         md.extend(child_lines)
         return md
 
     def render_module(self, module: Module) -> list[str]:
         """Render a module and its children."""
+        # Render the module header first.
+        lines = []
+        lines.extend(self.render_header(2, module))
+        lines.append("")
+
+        module_doc = reformat_docstring(module.docstring)
+        if module_doc:
+            lines.append(module_doc)
+            lines.append("")
+        if module.exports:
+            for export in module.exports:
+                lines.append(f"- `{export}`")
+            lines.append("")
+
+        # Now render the children.
         children_lines = []
         for const in module.constants:
             rendered = self.render_constant(const, heading_level=3)
@@ -494,24 +551,7 @@ class MarkdownRenderer(Renderer):
             if rendered:
                 children_lines.extend(rendered)
                 children_lines.append("")
-        module_doc = reformat_docstring(module.docstring)
-        if (
-            self.exclude_empty
-            and not module_doc
-            and not module.exports
-            and not children_lines
-        ):
-            return []
-        lines = []
-        lines.extend(self.render_header(2, module))
-        lines.append("")
-        if module_doc:
-            lines.append(module_doc)
-            lines.append("")
-        if module.exports:
-            for export in module.exports:
-                lines.append(f"- `{export}`")
-            lines.append("")
+
         lines.extend(children_lines)
         return lines
 

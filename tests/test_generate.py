@@ -29,7 +29,6 @@ def docs_file(test_dir):
 @pytest.fixture(scope="session")
 def generated_markdown(sample_package_dir):
     """Generate and load the documentation content."""
-    # Generate the documentation
     package = crawl_package(Path(sample_package_dir))
     renderer = MarkdownRenderer()
     markdown_output = renderer.render(package)
@@ -50,6 +49,6 @@ def test_generated_markdown(generated_markdown, docs_file):
                 generated_markdown.splitlines(keepends=True),
             )
         )
-        #print("".join(diff), end="")
+        # print("".join(diff), end="")
         print(generated_markdown)
         raise AssertionError("Generated markdown does not match expected content.")
