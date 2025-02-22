@@ -91,7 +91,6 @@ class Constant:
 
 # --- Helper functions ---
 
-
 def get_string_value(node: ast.AST) -> str | None:
     """Extract a string from an AST node representing a constant."""
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -349,7 +348,6 @@ def crawl_package(package_path: Path) -> Package:
 
 # --- Renderer Classes ---
 
-
 class Renderer:
     def render(self, package: Package) -> str:
         """Render the Package as a string.
@@ -358,9 +356,10 @@ class Renderer:
 
 
 class MarkdownRenderer(Renderer):
-    def __init__(self):
+    def __init__(self, include_private: bool = False):
         # List of tuples: (level, title, slug)
         self.toc: list[tuple[int, str, str]] = []
+        self.include_private = include_private
 
     @staticmethod
     def slugify(text: str) -> str:
@@ -370,6 +369,13 @@ class MarkdownRenderer(Renderer):
         text = re.sub(r"[^a-z0-9\s-]", "", text)
         text = re.sub(r"\s+", "-", text).strip("-")
         return text
+
+    def is_private(self, item: DocumentedItem) -> bool:
+        """Return True if the item is considered private."""
+        return not self.include_private and (
+            item.name.startswith("_")
+            and not (item.name.startswith("__") and item.name.endswith("__"))
+        )
 
     def render_docstring(
         self,
@@ -480,8 +486,10 @@ class MarkdownRenderer(Renderer):
 
     def render_constant(self, const: Constant, heading_level: int) -> list[str]:
         """Render a constant to Markdown and return the lines as a list of strings."""
+        # Skip if private.
+        if self.is_private(const):
+            return []
         lines = []
-        # Render constant header with its fully qualified name.
         lines.extend(self.render_header(heading_level, const))
         lines.append("")
         lines.append("```python")
@@ -495,9 +503,10 @@ class MarkdownRenderer(Renderer):
 
     def render_function(self, func: Function, heading_level: int) -> list[str]:
         """Render a function or method to Markdown and return the lines as a list of strings."""
+        if self.is_private(func):
+            return []
         doc = self.render_docstring(func.docstring, func.signature)
         lines = []
-        # For functions, override the header title to wrap the name in backticks.
         lines.extend(self.render_header(heading_level, func))
         lines.append("")
         if doc:
@@ -506,12 +515,9 @@ class MarkdownRenderer(Renderer):
         return lines
 
     def render_class(self, cls: Class, heading_level: int) -> list[str]:
-        """Recursively render a class, its signature, its methods, and nested classes.
-
-        Note: The header for the class is rendered before its children, so that it appears
-        correctly in the table of contents.
-        """
-        # Render the class header first.
+        """Recursively render a class, its signature, its methods, and nested classes."""
+        if self.is_private(cls):
+            return []
         md = []
         md.extend(self.render_header(heading_level, cls))
         md.append("")
@@ -519,9 +525,10 @@ class MarkdownRenderer(Renderer):
         if doc:
             md.append(doc)
             md.append("")
-        # Then render its children.
         child_lines = []
         for method in cls.functions:
+            if self.is_private(method):
+                continue
             rendered = self.render_function(method, heading_level=heading_level + 1)
             if rendered:
                 child_lines.extend(rendered)
@@ -535,7 +542,6 @@ class MarkdownRenderer(Renderer):
 
     def render_module(self, module: Module) -> list[str]:
         """Render a module and its children."""
-        # Render the module header first.
         lines = []
         lines.extend(self.render_header(2, module))
         lines.append("")
@@ -549,7 +555,6 @@ class MarkdownRenderer(Renderer):
                 lines.append(f"- `{export}`")
             lines.append("")
 
-        # Now render the children.
         children_lines = []
         for const in module.constants:
             rendered = self.render_constant(const, heading_level=3)
@@ -564,7 +569,6 @@ class MarkdownRenderer(Renderer):
             if rendered:
                 children_lines.extend(rendered)
                 children_lines.append("")
-
         lines.extend(children_lines)
         return lines
 
@@ -593,16 +597,15 @@ class MarkdownRenderer(Renderer):
 
 # --- Main function ---
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Crawl a Python package and extract docstrings."
     )
     parser.add_argument("package_path", help="Path to the Python package directory")
     parser.add_argument(
-        "--exclude_empty",
+        "--include-private",
         action="store_true",
-        help="Exclude items without docstrings (unless they have children with docstrings)",
+        help="Include private functions, classes, and constants (names starting with '_')",
     )
     args = parser.parse_args()
 
@@ -612,7 +615,7 @@ def main() -> None:
         return
 
     package = crawl_package(package_dir)
-    renderer = MarkdownRenderer()
+    renderer = MarkdownRenderer(include_private=args.include_private)
     markdown_output = renderer.render(package)
     print(markdown_output)
 
