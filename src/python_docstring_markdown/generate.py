@@ -453,12 +453,7 @@ class MarkdownRenderer:
         level: int,
         item: DocumentedItem,
     ) -> list[str]:
-        """
-        Render a header using a documented data class.
-        Uses the item's name (slugified) as the anchor, and the title_override
-        if provided; otherwise uses the item's name.
-        Records the header in the TOC and returns a list of Markdown lines.
-        """
+        """Render a header using a documented data class."""
         slug = self.slugify(item.name)
         return [f'<a id="{slug}"></a>', f"{'#' * level} `{item.fully_qualified_name}`"]
 
@@ -626,7 +621,10 @@ class MarkdownRenderer:
                 raise ValueError(f"Unsupported root type: {type(root)}")
 
     def render_file(
-        self, root: Package | Module, path: Path, include_toc: bool = False
+        self,
+        root: Package | Module,
+        path: Path,
+        include_toc: bool = False,
     ) -> None:
         """Render the root object as Markdown and write it to a file."""
         path.parent.mkdir(parents=True, exist_ok=True)
