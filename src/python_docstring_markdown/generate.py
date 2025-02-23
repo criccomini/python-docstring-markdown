@@ -349,15 +349,7 @@ def crawl_package(package_path: Path) -> Package:
 
 # --- Renderer Classes ---
 
-
-class Renderer:
-    def render(self, package: Package) -> str:
-        """Render the Package as a string.
-        This method should be implemented by subclasses."""
-        raise NotImplementedError
-
-
-class MarkdownRenderer(Renderer):
+class MarkdownRenderer:
     def __init__(self, include_private: bool = False):
         # List of tuples: (level, title, slug)
         self.toc: list[tuple[int, str, str]] = []
@@ -574,7 +566,7 @@ class MarkdownRenderer(Renderer):
         lines.extend(children_lines)
         return lines
 
-    def render(self, package: Package) -> str:
+    def render_package(self, package: Package) -> list[str]:
         """
         Render the Package as a Markdown string.
         The table of contents is inserted immediately after the package header.
@@ -594,7 +586,7 @@ class MarkdownRenderer(Renderer):
         final_lines.append("---")
         final_lines.append("")
         final_lines.extend(modules_lines)
-        return "\n".join(final_lines)
+        return final_lines
 
 
 # --- Main function ---
@@ -619,8 +611,8 @@ def main() -> None:
 
     package = crawl_package(package_dir)
     renderer = MarkdownRenderer(include_private=args.include_private)
-    markdown_output = renderer.render(package)
-    print(markdown_output)
+    markdown_output = renderer.render_package(package)
+    print("\n".join(markdown_output))
 
 
 if __name__ == "__main__":
