@@ -457,8 +457,18 @@ class MarkdownRenderer:
         slug = self.slugify(item.name)
         return [f'<a id="{slug}"></a>', f"{'#' * level} `{item.fully_qualified_name}`"]
 
-    def render_toc(self, root: Package | Module) -> list[str]:
-        """Render the table of contents based on the collected headers."""
+    def render_toc(self, root: Package | Module, file_links: bool = False) -> list[str]:
+        """
+        Render the table of contents based on the collected headers. If file_links is
+        True, links will be constructed as file references.
+
+        :param root: The root of the package to render
+        :type root: Package | Module
+        :param file_links: Whether to link to files rather than individual items
+        :type file_links: bool
+        :return: A list of lines to render
+        :rtype: list[str]
+        """
         lines = []
 
         def render_item(
@@ -467,12 +477,26 @@ class MarkdownRenderer:
         ) -> None:
             indent = "  " * (level - 1)
             slug = self.slugify(item.name)
-            lines.append(f"{indent}- [`{item.name}`](#{slug})")
+            if file_links:
+                if isinstance(item, Module):
+                    # For a module, link to its file.
+                    filename = item.fully_qualified_name + ".md"
+                    link = f"[`{item.name}`]({filename})"
+                else:
+                    # For other items, find the module that owns them and add an anchor.
+                    parent = item
+                    while not isinstance(parent, Module):
+                        parent = parent.parent  # type: ignore
+                    filename = parent.fully_qualified_name + ".md"
+                    link = f"[`{item.name}`]({filename}#{slug})"
+            else:
+                link = f"[`{item.name}`](#{slug})"
+            lines.append(f"{indent}- {link}")
             match item:
-                case Package(_):
+                case Package():
                     for module in item.modules:
                         render_item(level + 1, module)
-                case Module(_):
+                case Module():
                     for constant in item.constants:
                         if self.is_private(constant):
                             continue
@@ -485,7 +509,7 @@ class MarkdownRenderer:
                         if self.is_private(func):
                             continue
                         render_item(level + 1, func)
-                case Class(_):
+                case Class():
                     for cls in item.classes:
                         if self.is_private(cls):
                             continue
@@ -630,6 +654,38 @@ class MarkdownRenderer:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf8") as f:
             f.write("\n".join(self.render(root, include_toc)))
+
+    def render_files(
+        self,
+        package: Package,
+        path: Path,
+        include_toc: bool = False,
+    ) -> None:
+        """
+        Render a package to a series of files, one for each module.
+
+        If the path is a file rather than a directory, render an index file at that location,
+        then write each module to a separate file. The index file includes just a table of
+        contents that links to all other modules and their classes and functions. If the path
+        is a directory, simply render each module to a file in that directory.
+
+        :param package: The package to render
+        :type package: Package
+        :param path: The path to the output directory or file
+        :type path: Path
+        :param include_toc: Whether to include a table of contents
+        :type include_toc: bool
+        """
+        out_dir = path
+        if path.is_file():
+            out_dir = path.parent
+            toc_lines = self.render_toc(package, file_links=True)
+            with path.open("w", encoding="utf8") as f:
+                f.write("\n".join(toc_lines))
+        for module in package.modules:
+            filename = module.fully_qualified_name + ".md"
+            module_path = out_dir / filename
+            self.render_file(module, module_path, include_toc=include_toc)
 
 
 # --- Main function ---
