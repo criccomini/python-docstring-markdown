@@ -5,10 +5,10 @@
 groups = ["default", "dev"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:815bcec01073eddedf69690d8b1edc936fa7e9c0ee9bced01149111af0a033fa"
+content_hash = "sha256:c2175586c4dc6f7ba91b52866c1197257e0b0d6527900839ee4b88b1b73e5a5c"
 
 [[metadata.targets]]
-requires_python = ">=3.9"
+requires_python = ">=3.10"
 
 [[package]]
 name = "astroid"

@@ -351,8 +351,6 @@ def crawl_package(package_path: Path) -> Package:
 
 class MarkdownRenderer:
     def __init__(self, include_private: bool = False):
-        # List of tuples: (level, title, slug)
-        self.toc: list[tuple[int, str, str]] = []
         self.include_private = include_private
 
     @staticmethod
@@ -461,20 +459,44 @@ class MarkdownRenderer:
         Records the header in the TOC and returns a list of Markdown lines.
         """
         slug = self.slugify(item.name)
-        self.toc.append((level, item.name, slug))
         return [f'<a id="{slug}"></a>', f"{'#' * level} `{item.fully_qualified_name}`"]
 
-    def render_toc(self) -> list[str]:
+    def render_toc(self, root: Package | Module) -> list[str]:
         """Render the table of contents based on the collected headers."""
         lines = []
-        title = "Table of Contents"
-        slug = self.slugify(title)
-        lines.append(f'<a id="{slug}"></a>')
-        lines.append(f"**{title}**")
-        lines.append("")
-        for level, title, slug in self.toc:
+        def render_item(level: int, item: Package | Module | Class | Function | Constant) -> None:
             indent = "  " * (level - 1)
-            lines.append(f"{indent}- [`{title}`](#{slug})")
+            slug = self.slugify(item.name)
+            lines.append(f"{indent}- [`{item.name}`](#{slug})")
+            match item:
+                case Package(_):
+                    for module in item.modules:
+                        render_item(level + 1, module)
+                case Module(_):
+                    for constant in item.constants:
+                        if self.is_private(constant):
+                            continue
+                        render_item(level + 1, constant)
+                    for cls in item.classes:
+                        if self.is_private(cls):
+                            continue
+                        render_item(level + 1, cls)
+                    for func in item.functions:
+                        if self.is_private(func):
+                            continue
+                        render_item(level + 1, func)
+                case Class(_):
+                    for cls in item.classes:
+                        if self.is_private(cls):
+                            continue
+                        render_item(level + 1, cls)
+                    for func in item.functions:
+                        if self.is_private(func):
+                            continue
+                        render_item(level + 1, func)
+                case _:
+                    pass
+        render_item(1, root)
         lines.append("")
         return lines
 
@@ -571,14 +593,13 @@ class MarkdownRenderer:
         Render the Package as a Markdown string.
         The table of contents is inserted immediately after the package header.
         """
-        self.toc = []
         package_header = self.render_header(1, package)
         modules_lines: list[str] = []
         for module in package.modules:
             rendered_module = self.render_module(module)
             if rendered_module:
                 modules_lines.extend(rendered_module)
-        toc_lines = self.render_toc()
+        toc_lines = self.render_toc(package)
         final_lines = []
         final_lines.extend(package_header)
         final_lines.append("")

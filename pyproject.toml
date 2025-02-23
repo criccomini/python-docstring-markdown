@@ -6,7 +6,7 @@ authors = [
     {name = "Chris Riccomini", email = "criccomini@apache.org"},
 ]
 dependencies = ["docstring-parser-fork>=0.0.12"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "CC-0"}
 
