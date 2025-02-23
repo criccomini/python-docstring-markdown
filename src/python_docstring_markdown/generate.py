@@ -349,6 +349,7 @@ def crawl_package(package_path: Path) -> Package:
 
 # --- Renderer Classes ---
 
+
 class MarkdownRenderer:
     def __init__(self, include_private: bool = False):
         self.include_private = include_private
@@ -464,7 +465,11 @@ class MarkdownRenderer:
     def render_toc(self, root: Package | Module) -> list[str]:
         """Render the table of contents based on the collected headers."""
         lines = []
-        def render_item(level: int, item: Package | Module | Class | Function | Constant) -> None:
+
+        def render_item(
+            level: int,
+            item: Package | Module | Class | Function | Constant,
+        ) -> None:
             indent = "  " * (level - 1)
             slug = self.slugify(item.name)
             lines.append(f"{indent}- [`{item.name}`](#{slug})")
@@ -496,6 +501,7 @@ class MarkdownRenderer:
                         render_item(level + 1, func)
                 case _:
                     pass
+
         render_item(1, root)
         lines.append("")
         return lines
@@ -556,11 +562,15 @@ class MarkdownRenderer:
         md.extend(child_lines)
         return md
 
-    def render_module(self, module: Module) -> list[str]:
+    def render_module(self, module: Module, include_toc: bool = False) -> list[str]:
         """Render a module and its children."""
         lines = []
         lines.extend(self.render_header(2, module))
         lines.append("")
+
+        if include_toc:
+            lines.extend(self.render_toc(module))
+            lines.append("")
 
         module_doc = self.render_docstring(module.docstring)
         if module_doc:
@@ -588,26 +598,40 @@ class MarkdownRenderer:
         lines.extend(children_lines)
         return lines
 
-    def render_package(self, package: Package) -> list[str]:
+    def render_package(self, package: Package, include_toc: bool = False) -> list[str]:
         """
         Render the Package as a Markdown string.
         The table of contents is inserted immediately after the package header.
         """
-        package_header = self.render_header(1, package)
-        modules_lines: list[str] = []
+        lines = []
+        lines.extend(self.render_header(1, package))
+        lines.append("")
+        if include_toc:
+            lines.extend(self.render_toc(package))
+            lines.append("")
         for module in package.modules:
             rendered_module = self.render_module(module)
             if rendered_module:
-                modules_lines.extend(rendered_module)
-        toc_lines = self.render_toc(package)
-        final_lines = []
-        final_lines.extend(package_header)
-        final_lines.append("")
-        final_lines.extend(toc_lines)
-        final_lines.append("---")
-        final_lines.append("")
-        final_lines.extend(modules_lines)
-        return final_lines
+                lines.extend(rendered_module)
+        return lines
+
+    def render(self, root: Package | Module, include_toc: bool = False) -> list[str]:
+        """Render the root object as Markdown and return the lines as a list of strings."""
+        match root:
+            case Package():
+                return self.render_package(root, include_toc)
+            case Module():
+                return self.render_module(root, include_toc)
+            case _:
+                raise ValueError(f"Unsupported root type: {type(root)}")
+
+    def render_file(
+        self, root: Package | Module, path: Path, include_toc: bool = False
+    ) -> None:
+        """Render the root object as Markdown and write it to a file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf8") as f:
+            f.write("\n".join(self.render(root, include_toc)))
 
 
 # --- Main function ---
@@ -632,7 +656,7 @@ def main() -> None:
 
     package = crawl_package(package_dir)
     renderer = MarkdownRenderer(include_private=args.include_private)
-    markdown_output = renderer.render_package(package)
+    markdown_output = renderer.render(package, True)
     print("\n".join(markdown_output))
 
 

@@ -31,7 +31,7 @@ def generated_markdown(sample_package_dir):
     """Generate and load the documentation content."""
     package = crawl_package(Path(sample_package_dir))
     renderer = MarkdownRenderer()
-    markdown_output = renderer.render_package(package)
+    markdown_output = renderer.render(package, True)
 
     yield "\n".join(markdown_output)
 
