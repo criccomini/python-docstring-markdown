@@ -27,9 +27,14 @@ def docs_file(test_dir):
 
 
 @pytest.fixture(scope="session")
-def generated_markdown(sample_package_dir):
+def package(sample_package_dir):
+    """Crawl the package and return the resulting Package object."""
+    return crawl_package(Path(sample_package_dir))
+
+
+@pytest.fixture(scope="session")
+def generated_markdown(package):
     """Generate and load the documentation content."""
-    package = crawl_package(Path(sample_package_dir))
     renderer = MarkdownRenderer()
     markdown_output = renderer.render(package, True)
 
