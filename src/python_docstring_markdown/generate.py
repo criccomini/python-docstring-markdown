@@ -35,9 +35,7 @@ class DocumentedItem(Protocol):
 class Package:
     path: Path
     name: str  # final name (directory name)
-    fully_qualified_name: str  # e.g. "mypkg" or "parent.child"
-    parent: Package | None = None
-    subpackages: list[Package] = field(default_factory=list)
+    fully_qualified_name: str  # same as name for the top-level package
     modules: list[Module] = field(default_factory=list)
 
 
@@ -68,7 +66,6 @@ class Class:
     # Can be either a module or another class (for nested classes)
     parent: Module | Class
     docstring: docstring_parser.Docstring | None = None
-    constants: list[Constant] = field(default_factory=list)  # New: class-level constants
     functions: list[Function] = field(default_factory=list)
     classes: list[Class] = field(default_factory=list)  # For nested classes
 
@@ -88,7 +85,6 @@ class Constant:
     path: Path
     name: str  # constant name
     fully_qualified_name: str  # e.g. foo.bar.MY_CONSTANT
-    parent: Module | Class
     value: str  # the string representation of the value
     type: str | None = None  # the constant's type, if available
 
@@ -173,7 +169,7 @@ def parse_function(
 
 
 def parse_class(node: ast.ClassDef, parent: Module | Class, file_path: Path) -> Class:
-    """Parse a class node into a Class dataclass instance and process its methods, constants, and nested classes."""
+    """Parse a class node into a Class dataclass instance and process its methods and nested classes."""
     raw_doc = ast.get_docstring(node)
     parsed_doc = docstring_parser.parse(raw_doc) if raw_doc else None
     fq_name = f"{parent.fully_qualified_name}.{node.name}"
@@ -190,11 +186,10 @@ def parse_class(node: ast.ClassDef, parent: Module | Class, file_path: Path) -> 
         signature=signature,
         parent=parent,
         docstring=parsed_doc,
-        constants=[],
         functions=[],
         classes=[],
     )
-    # Process methods, nested classes, and class-level constants.
+    # Process methods and nested classes.
     for child in node.body:
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
             method = parse_function(child, file_path, parent=cls)
@@ -202,51 +197,6 @@ def parse_class(node: ast.ClassDef, parent: Module | Class, file_path: Path) -> 
         elif isinstance(child, ast.ClassDef):
             nested_cls = parse_class(child, parent=cls, file_path=file_path)
             cls.classes.append(nested_cls)
-        elif isinstance(child, (ast.Assign, ast.AnnAssign)):
-            # Process assignments as class constants if they are ALL CAPS and not "__ALL__"
-            if isinstance(child, ast.Assign):
-                for target in child.targets:
-                    if (
-                        isinstance(target, ast.Name)
-                        and target.id.isupper()
-                        and target.id != "__ALL__"
-                    ):
-                        type_annotation = None
-                        if hasattr(child, "type_comment") and child.type_comment:
-                            type_annotation = child.type_comment
-                        value = ast.unparse(child.value)
-                        fq_const = f"{cls.fully_qualified_name}.{target.id}"
-                        constant = Constant(
-                            path=file_path,
-                            name=target.id,
-                            fully_qualified_name=fq_const,
-                            value=value,
-                            type=type_annotation,
-                            parent=cls,
-                        )
-                        cls.constants.append(constant)
-            elif isinstance(child, ast.AnnAssign):
-                if (
-                    isinstance(child.target, ast.Name)
-                    and child.target.id.isupper()
-                    and child.target.id != "__ALL__"
-                ):
-                    type_annotation = (
-                        ast.unparse(child.annotation) if child.annotation else None
-                    )
-                    value = (
-                        ast.unparse(child.value) if child.value is not None else "None"
-                    )
-                    fq_const = f"{cls.fully_qualified_name}.{child.target.id}"
-                    constant = Constant(
-                        path=file_path,
-                        name=child.target.id,
-                        fully_qualified_name=fq_const,
-                        value=value,
-                        type=type_annotation,
-                        parent=cls,
-                    )
-                    cls.constants.append(constant)
     return cls
 
 
@@ -285,6 +235,7 @@ def parse_module_constants(
     """
     for node in module_ast.body:
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            # Process ast.Assign nodes (may have multiple targets).
             if isinstance(node, ast.Assign):
                 for target in node.targets:
                     if (
@@ -296,17 +247,17 @@ def parse_module_constants(
                         if hasattr(node, "type_comment") and node.type_comment:
                             type_annotation = node.type_comment
                         value = ast.unparse(node.value)
-                        fq_const = f"{module.fully_qualified_name}.{target.id}"
+                        fq_name = f"{module.fully_qualified_name}.{target.id}"
                         constant = Constant(
                             path=file_path,
                             name=target.id,
-                            fully_qualified_name=fq_const,
+                            fully_qualified_name=fq_name,
                             value=value,
                             type=type_annotation,
-                            parent=module,
                         )
                         module.constants.append(constant)
                         break
+            # Process annotated assignments.
             elif isinstance(node, ast.AnnAssign):
                 if (
                     isinstance(node.target, ast.Name)
@@ -319,14 +270,13 @@ def parse_module_constants(
                     value = (
                         ast.unparse(node.value) if node.value is not None else "None"
                     )
-                    fq_const = f"{module.fully_qualified_name}.{node.target.id}"
+                    fq_name = f"{module.fully_qualified_name}.{node.target.id}"
                     constant = Constant(
                         path=file_path,
                         name=node.target.id,
-                        fully_qualified_name=fq_const,
+                        fully_qualified_name=fq_name,
                         value=value,
                         type=type_annotation,
-                        parent=module,
                     )
                     module.constants.append(constant)
 
@@ -377,7 +327,7 @@ def parse_module(file_path: Path, package: Package) -> Module:
         classes=[],
         exports=[],
     )
-    if file_path.name == "__init__.py":
+    if file_path.name == "__init__":
         module.exports = parse_module_exports(module_ast)
     parse_module_constants(module_ast, module, file_path)
     parse_module_functions(module_ast, module, file_path)
@@ -385,30 +335,15 @@ def parse_module(file_path: Path, package: Package) -> Module:
     return module
 
 
-def crawl_package(package_path: Path, parent: Package | None = None) -> Package:
-    """Recursively crawl the package directory, parsing each .py file as a Module
-    and each subpackage as a Package.
-    A directory is considered a package if it contains an __init__.py file.
-    """
+def crawl_package(package_path: Path) -> Package:
+    """Recursively crawl the package directory, parsing each .py file as a Module."""
     pkg_name = package_path.name
-    fq_name = pkg_name if parent is None else f"{parent.fully_qualified_name}.{pkg_name}"
     package = Package(
-        path=package_path,
-        name=pkg_name,
-        fully_qualified_name=fq_name,
-        parent=parent,
-        modules=[],
-        subpackages=[],
+        path=package_path, name=pkg_name, fully_qualified_name=pkg_name, modules=[]
     )
-    # Process modules in the current package directory.
-    for file in package_path.glob("*.py"):
-        module = parse_module(file, package)
+    for file_path in package_path.rglob("*.py"):
+        module = parse_module(file_path, package)
         package.modules.append(module)
-    # Process subpackages.
-    for subdir in package_path.iterdir():
-        if subdir.is_dir() and (subdir / "__init__.py").exists():
-            subpkg = crawl_package(subdir, parent=package)
-            package.subpackages.append(subpkg)
     return package
 
 
