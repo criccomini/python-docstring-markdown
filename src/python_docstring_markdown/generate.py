@@ -662,29 +662,18 @@ class MarkdownRenderer:
         include_toc: bool = False,
     ) -> None:
         """
-        Render a package to a series of files, one for each module.
-
-        If the path is a file rather than a directory, render an index file at that location,
-        then write each module to a separate file. The index file includes just a table of
-        contents that links to all other modules and their classes and functions. If the path
-        is a directory, simply render each module to a file in that directory.
-
-        :param package: The package to render
-        :type package: Package
-        :param path: The path to the output directory or file
-        :type path: Path
-        :param include_toc: Whether to include a table of contents
-        :type include_toc: bool
+        Render a package to a series of files, one for each module. Renders an
+        index file named after the package at the given path that includes a table of
+        contents for all modules, classes, functions, and constants.
         """
-        out_dir = path
-        if path.is_file():
-            out_dir = path.parent
-            toc_lines = self.render_toc(package, file_links=True)
-            with path.open("w", encoding="utf8") as f:
-                f.write("\n".join(toc_lines))
+        assert path.is_dir()
+        path.mkdir(parents=True, exist_ok=True)
+        package_path = path / (package.fully_qualified_name + ".md")
+        toc_lines = self.render_toc(package, file_links=True)
+        with package_path.open("w", encoding="utf8") as f:
+            f.write("\n".join(toc_lines))
         for module in package.modules:
-            filename = module.fully_qualified_name + ".md"
-            module_path = out_dir / filename
+            module_path = path / (module.fully_qualified_name + ".md")
             self.render_file(module, module_path, include_toc=include_toc)
 
 
@@ -701,17 +690,37 @@ def main() -> None:
         action="store_true",
         help="Include private functions, classes, and constants (names starting with '_')",
     )
+    parser.add_argument(
+        "--exclude-toc",
+        dest="exclude_toc",
+        action="store_true",
+        help="Exclude a table of contents from the output",
+    )
+    parser.add_argument(
+        "--path",
+        help="Optional output path. If a file, the output is written to that file. "
+        "If a directory, one file per module is generated. If not provided, output is printed to stdout.",
+    )
     args = parser.parse_args()
-
     package_dir = Path(args.package_path)
+
     if not package_dir.is_dir():
         print(f"Error: {package_dir} is not a directory.")
         return
 
     package = crawl_package(package_dir)
     renderer = MarkdownRenderer(include_private=args.include_private)
-    markdown_output = renderer.render(package, True)
-    print("\n".join(markdown_output))
+    include_toc = not args.exclude_toc
+
+    if args.path:
+        output_path = Path(args.path)
+        if output_path.is_dir():
+            renderer.render_files(package, output_path, include_toc=include_toc)
+        else:
+            renderer.render_file(package, output_path, include_toc=include_toc)
+    else:
+        markdown_output = renderer.render(package, include_toc=include_toc)
+        print("\n".join(markdown_output))
 
 
 if __name__ == "__main__":
