@@ -454,7 +454,6 @@ class MarkdownRenderer:
             # Render all modules
             for module in package.modules:
                 lines.extend(self.render_module(module, is_one_file=is_one_file))
-                lines.append("")
             output = "\n".join(lines)
             if output_path is None:
                 print(output)
@@ -484,7 +483,6 @@ class MarkdownRenderer:
         lines.append("```python")
         lines.append(f"{const.name}{type_str} = {const.value}")
         lines.append("```")
-        lines.append("")
         return lines
 
     def render_module(
@@ -525,7 +523,9 @@ class MarkdownRenderer:
             lines.append(
                 f"- **[Exports](#{self.anchor(module.fully_qualified_name)}-exports)**"
             )
-        lines.append("")
+
+        if module.constants or module.functions or module.classes or module.exports:
+            lines.append("")
 
         # Detailed sections.
         if module.constants:
@@ -533,6 +533,7 @@ class MarkdownRenderer:
             lines.append("")
             for const in module.constants:
                 lines.extend(self.render_constant(const, level=level + 1))
+            lines.append("")
         if module.functions:
             lines.append(f"{header_prefix}# Functions")
             lines.append("")
@@ -557,7 +558,7 @@ class MarkdownRenderer:
                 link = f"#{self.anchor(fqn)}" if is_one_file else f"{fqn}.md"
                 lines.append(f"- 🅼 [`{exp}`]({link})")
             lines.append("")
-
+        lines.pop()
         return lines
 
     def render_class_toc(self, module: Module, cls: Class, indent: int) -> list[str]:
@@ -587,6 +588,7 @@ class MarkdownRenderer:
         lines.append("")
         if cls.docstring:
             lines.extend(self.render_docstring(cls.docstring))
+            lines.append("")
         if cls.functions:
             lines.append("**Functions:**")
             lines.append("")
@@ -598,6 +600,7 @@ class MarkdownRenderer:
             for nested in cls.classes:
                 lines.extend(self.render_class_details(nested, level=level))
             lines.append("")
+        lines.pop()
         return lines
 
     def render_function(self, func: Function, level: int) -> list[str]:
@@ -616,6 +619,8 @@ class MarkdownRenderer:
         lines.append("")
         if func.docstring:
             lines.extend(self.render_docstring(func.docstring))
+            lines.append("")
+        lines.pop()
         return lines
 
     def render_docstring(
@@ -628,10 +633,10 @@ class MarkdownRenderer:
         indent_str = "  " * indent
         lines: list[str] = []
         if doc.short_description:
-            lines.append(f"{indent_str}{doc.short_description}")
+            lines.append(f"{indent_str}{doc.short_description.strip()}")
             lines.append("")
         if doc.long_description:
-            lines.append(f"{indent_str}{doc.long_description}")
+            lines.append(f"{indent_str}{doc.long_description.strip()}")
             lines.append("")
         if doc.params:
             lines.append(f"{indent_str}**Parameters:**")
@@ -643,7 +648,7 @@ class MarkdownRenderer:
                 if param.default:
                     line += f" (default: `{param.default}`)"
                 if param.description:
-                    line += f": {param.description}"
+                    line += f": {param.description.strip()}"
                 lines.append(line)
             lines.append("")
         if doc.attrs:
@@ -654,7 +659,7 @@ class MarkdownRenderer:
                 if attr.type_name:
                     line += f" (`{attr.type_name}`)"
                 if attr.description:
-                    line += f": {attr.description}"
+                    line += f": {attr.description.strip()}"
                 lines.append(line)
             lines.append("")
         if doc.returns:
@@ -664,7 +669,7 @@ class MarkdownRenderer:
             if doc.returns.type_name:
                 ret_line += f"`{doc.returns.type_name}`: "
             if doc.returns.description:
-                ret_line += f"{doc.returns.description}"
+                ret_line += f"{doc.returns.description.strip()}"
             else:
                 # Trim the trailing colon if no description is provided.
                 ret_line = ret_line[:-2]
@@ -674,10 +679,14 @@ class MarkdownRenderer:
             lines.append(f"{indent_str}**Raises:**")
             lines.append("")
             for raise_item in doc.raises:
-                lines.append(
-                    f"{indent_str}- **{raise_item.type_name}**: {raise_item.description}"
-                )
+                raise_line = f"{indent_str}- **{raise_item.type_name}**: "
+                if raise_item.description:
+                    raise_line += f"{raise_item.description.strip()}"
+                else:
+                    raise_line = raise_line[:-2]
+                lines.append(raise_line)
             lines.append("")
+        lines.pop()
         return lines
 
     def anchor(self, fq_name: str) -> str:
