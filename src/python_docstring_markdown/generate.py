@@ -483,51 +483,37 @@ class MarkdownRenderer:
         lines: list[str] = []
         header_prefix = "#" * level
         # Module header with an HTML anchor.
-        lines.append(
-            f'{header_prefix} {module.fully_qualified_name} <a name="{self.anchor(module.fully_qualified_name)}"></a>'
-        )
+        lines.append(f'<a name="{self.anchor(module.fully_qualified_name)}"></a>')
+        lines.append(f"{header_prefix} {module.fully_qualified_name}")
         lines.append("")
 
         # Render module docstring details if available.
         if module.docstring:
             lines.extend(self.render_docstring(module.docstring))
+            lines.append("")
 
         # Second-level table of contents for this module.
-        lines.append(f"{header_prefix}# Contents")
-        lines.append("")
-        if module.exports:
-            lines.append(
-                f"- **[Exports](#{self.anchor(module.fully_qualified_name)}-exports)**"
-            )
-        if module.classes:
-            lines.append("- **Classes:**")
-            for cls in module.classes:
-                lines.extend(self.render_class_toc(module, cls, indent=1))
-        if module.functions:
-            lines.append("- **Functions:**")
-            for func in module.functions:
-                lines.append("  " * 1 + f"- [{func.name}]({self.link(module, func)})")
         if module.constants:
             lines.append("- **Constants:**")
             for const in module.constants:
                 lines.append("  " * 1 + f"- [{const.name}]({self.link(module, const)})")
+        if module.functions:
+            lines.append("- **Functions:**")
+            for func in module.functions:
+                lines.append("  " * 1 + f"- [{func.name}]({self.link(module, func)})")
+        if module.classes:
+            lines.append("- **Classes:**")
+            for cls in module.classes:
+                lines.extend(self.render_class_toc(module, cls, indent=1))
+        if module.exports:
+            lines.append(
+                f"- **[Exports](#{self.anchor(module.fully_qualified_name)}-exports)**"
+            )
         lines.append("")
 
         # Detailed sections.
-        if module.exports:
-            lines.append(
-                f'<a name="{self.anchor(module.fully_qualified_name)}-exports"></a>'
-            )
-            lines.append("#### Exports")
-            lines.append("")
-            for exp in module.exports:
-                # Hack since we have the fqn for a module as a string
-                fqn = f"{module.fully_qualified_name}.{exp}"
-                link = f"#{self.anchor(fqn)}" if is_one_file else f"{fqn}.md"
-                lines.append(f"- [`{exp}`]({link})")
-            lines.append("")
         if module.constants:
-            lines.append("#### Constants")
+            lines.append(f"{header_prefix}# Constants")
             lines.append("")
             for const in module.constants:
                 type_str = f": {const.type}" if const.type else ""
@@ -538,16 +524,28 @@ class MarkdownRenderer:
                 lines.append("```")
                 lines.append("")
         if module.functions:
-            lines.append("#### Functions")
+            lines.append(f"{header_prefix}# Functions")
             lines.append("")
             for func in module.functions:
                 lines.extend(self.render_function(func, level=level + 1))
             lines.append("")
         if module.classes:
-            lines.append("#### Classes")
+            lines.append(f"{header_prefix}# Classes")
             lines.append("")
             for cls in module.classes:
                 lines.extend(self.render_class_details(cls, level=level + 1))
+            lines.append("")
+        if module.exports:
+            lines.append(
+                f'<a name="{self.anchor(module.fully_qualified_name)}-exports"></a>'
+            )
+            lines.append(f"{header_prefix}# Exports")
+            lines.append("")
+            for exp in module.exports:
+                # Hack since we have the fqn for a module as a string
+                fqn = f"{module.fully_qualified_name}.{exp}"
+                link = f"#{self.anchor(fqn)}" if is_one_file else f"{fqn}.md"
+                lines.append(f"- [`{exp}`]({link})")
             lines.append("")
 
         return lines
@@ -570,9 +568,8 @@ class MarkdownRenderer:
         """
         lines: list[str] = []
         header_prefix = "#" * level
-        lines.append(
-            f'{header_prefix} {cls.fully_qualified_name} <a name="{self.anchor(cls.fully_qualified_name)}"></a>'
-        )
+        lines.append(f'<a name="{self.anchor(cls.fully_qualified_name)}"></a>')
+        lines.append(f"{header_prefix} {cls.fully_qualified_name}")
         lines.append("")
         lines.append("```python")
         lines.append(cls.signature)
@@ -601,9 +598,8 @@ class MarkdownRenderer:
         """
         lines: list[str] = []
         header_prefix = "#" * level
-        lines.append(
-            f'{header_prefix} {func.fully_qualified_name} <a name="{self.anchor(func.fully_qualified_name)}"></a>'
-        )
+        lines.append(f'<a name="{self.anchor(func.fully_qualified_name)}"></a>')
+        lines.append(f"{header_prefix} {func.fully_qualified_name}")
         lines.append("")
         lines.append("```python")
         lines.append(func.signature)
@@ -641,6 +637,17 @@ class MarkdownRenderer:
                     line += f": {param.description}"
                 lines.append(line)
             lines.append("")
+        if doc.attrs:
+            lines.append(f"{indent_str}**Attributes:**")
+            lines.append("")
+            for attr in doc.attrs:
+                line = f"{indent_str}- **{attr.arg_name}**"
+                if attr.type_name:
+                    line += f" (`{attr.type_name}`)"
+                if attr.description:
+                    line += f": {attr.description}"
+                lines.append(line)
+            lines.append("")
         if doc.returns:
             lines.append(f"{indent_str}**Returns:**")
             lines.append("")
@@ -658,17 +665,6 @@ class MarkdownRenderer:
                 lines.append(
                     f"{indent_str}- **{raise_item.type_name}**: {raise_item.description}"
                 )
-            lines.append("")
-        if doc.attrs:
-            lines.append(f"{indent_str}**Attributes:**")
-            lines.append("")
-            for attr in doc.attrs:
-                line = f"{indent_str}- **{attr.arg_name}**"
-                if attr.type_name:
-                    line += f" (`{attr.type_name}`)"
-                if attr.description:
-                    line += f": {attr.description}"
-                lines.append(line)
             lines.append("")
         return lines
 
