@@ -584,10 +584,9 @@ class MarkdownRenderer:
                 lines.extend(self.render_function(func, level=level + 1))
             lines.append("")
         if cls.classes:
-            lines.append("**Nested Classes:**")
-            lines.append("")
+            # Flatten all nested classes in this class.
             for nested in cls.classes:
-                lines.extend(self.render_class_details(nested, level=level + 1))
+                lines.extend(self.render_class_details(nested, level=level))
             lines.append("")
         return lines
 
