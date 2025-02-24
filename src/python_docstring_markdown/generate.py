@@ -9,7 +9,6 @@ Additional features:
   - For each function/method, its signature is included with type hints (if present) and its return type.
   - Autodetects docstring formats (Google-style, NumPy-style, etc.) and reformats them into Markdown.
   - Constants are detected and their types are included when available.
-  - Classes now include a signature (showing base classes) and are rendered with their signature.
   - Parameter and return sections now include type information when available.
 """
 
@@ -17,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
@@ -46,7 +44,7 @@ class Module:
     name: str
     # e.g. package_name.module or just package_name for __init__
     fully_qualified_name: str
-    package: Package
+    submodules: list[Module] = field(default_factory=list)
     docstring: docstring_parser.Docstring | None = None
     constants: list[Constant] = field(default_factory=list)
     functions: list[Function] = field(default_factory=list)
@@ -61,10 +59,7 @@ class Class:
     name: str
     # e.g. foo.bar.Baz
     fully_qualified_name: str
-    # the class signature (including base classes)
     signature: str
-    # Can be either a module or another class (for nested classes)
-    parent: Module | Class
     docstring: docstring_parser.Docstring | None = None
     functions: list[Function] = field(default_factory=list)
     classes: list[Class] = field(default_factory=list)  # For nested classes
@@ -76,7 +71,6 @@ class Function:
     name: str  # final function/method name
     fully_qualified_name: str  # e.g. foo.bar.Baz.method
     signature: str
-    parent: Class | Module
     docstring: docstring_parser.Docstring | None = None
 
 
@@ -90,6 +84,19 @@ class Constant:
 
 
 # --- Helper functions ---
+
+
+def should_include(name: str, include_private: bool) -> bool:
+    """
+    Returns True if the given name should be included based on the value
+    of include_private. Always include dunder names like __init__.
+    """
+    if include_private:
+        return True
+    # Exclude names starting with a single underscore.
+    if name.startswith("_") and not (name.startswith("__") and name.endswith("__")):
+        return False
+    return True
 
 
 def get_string_value(node: ast.AST) -> str | None:
@@ -163,12 +170,13 @@ def parse_function(
         name=node.name,
         fully_qualified_name=fq_name,
         signature=signature,
-        parent=parent,
         docstring=parsed_doc,
     )
 
 
-def parse_class(node: ast.ClassDef, parent: Module | Class, file_path: Path) -> Class:
+def parse_class(
+    node: ast.ClassDef, parent: Module | Class, file_path: Path, include_private: bool
+) -> Class:
     """Parse a class node into a Class dataclass instance and process its methods and nested classes."""
     raw_doc = ast.get_docstring(node)
     parsed_doc = docstring_parser.parse(raw_doc) if raw_doc else None
@@ -184,7 +192,6 @@ def parse_class(node: ast.ClassDef, parent: Module | Class, file_path: Path) -> 
         name=node.name,
         fully_qualified_name=fq_name,
         signature=signature,
-        parent=parent,
         docstring=parsed_doc,
         functions=[],
         classes=[],
@@ -192,10 +199,16 @@ def parse_class(node: ast.ClassDef, parent: Module | Class, file_path: Path) -> 
     # Process methods and nested classes.
     for child in node.body:
         if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not should_include(child.name, include_private):
+                continue
             method = parse_function(child, file_path, parent=cls)
             cls.functions.append(method)
         elif isinstance(child, ast.ClassDef):
-            nested_cls = parse_class(child, parent=cls, file_path=file_path)
+            if not should_include(child.name, include_private):
+                continue
+            nested_cls = parse_class(
+                child, parent=cls, file_path=file_path, include_private=include_private
+            )
             cls.classes.append(nested_cls)
     return cls
 
@@ -226,6 +239,7 @@ def parse_module_constants(
     module_ast: ast.Module,
     module: Module,
     file_path: Path,
+    include_private: bool,
 ) -> None:
     """Parse constants defined in a module.
 
@@ -242,6 +256,7 @@ def parse_module_constants(
                         isinstance(target, ast.Name)
                         and target.id.isupper()
                         and target.id != "__ALL__"
+                        and should_include(target.id, include_private)
                     ):
                         type_annotation = None
                         if hasattr(node, "type_comment") and node.type_comment:
@@ -263,6 +278,7 @@ def parse_module_constants(
                     isinstance(node.target, ast.Name)
                     and node.target.id.isupper()
                     and node.target.id != "__ALL__"
+                    and should_include(node.target.id, include_private)
                 ):
                     type_annotation = (
                         ast.unparse(node.annotation) if node.annotation else None
@@ -285,10 +301,13 @@ def parse_module_functions(
     module_ast: ast.Module,
     module: Module,
     file_path: Path,
+    include_private: bool,
 ) -> None:
     """Parse top-level functions in a module."""
     for node in module_ast.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if not should_include(node.name, include_private):
+                continue
             func = parse_function(node, file_path, parent=module)
             module.functions.append(func)
 
@@ -297,53 +316,111 @@ def parse_module_classes(
     module_ast: ast.Module,
     module: Module,
     file_path: Path,
+    include_private: bool,
 ) -> None:
     """Parse classes in a module."""
     for node in module_ast.body:
         if isinstance(node, ast.ClassDef):
-            cls = parse_class(node, parent=module, file_path=file_path)
+            if not should_include(node.name, include_private):
+                continue
+            cls = parse_class(
+                node,
+                parent=module,
+                file_path=file_path,
+                include_private=include_private,
+            )
             module.classes.append(cls)
 
 
-def parse_module(file_path: Path, package: Package) -> Module:
+def parse_module_submodules(
+    module: Module,
+    file_path: Path,
+    include_private: bool,
+) -> None:
+    """Parse submodules of a module."""
+    for file_path in file_path.parent.iterdir():
+        init_py = file_path / "__init__.py"
+        if init_py.is_file():
+            submodule = parse_module(
+                init_py,
+                f"{module.fully_qualified_name}.{file_path.name}",
+                include_private,
+            )
+            module.submodules.append(submodule)
+        elif file_path.suffix == ".py" and file_path.stem != "__init__":
+            if (
+                not include_private
+                and file_path.name.startswith("_")
+                and not file_path.name.startswith("__")
+            ):
+                continue
+            submodule = parse_module(
+                file_path,
+                f"{module.fully_qualified_name}",
+                include_private,
+            )
+            module.submodules.append(submodule)
+
+
+def parse_module(
+    file_path: Path,
+    fully_qualified_name: str,
+    include_private: bool,
+) -> Module:
     """Parse a single module file into a Module dataclass instance."""
     with file_path.open("r", encoding="utf8") as f:
         source = f.read()
     module_ast = ast.parse(source, filename=str(file_path))
-    # If the file is __init__.py, use the package's fully qualified name.
     mod_name = file_path.stem
-    if mod_name == "__init__":
-        fq_name = package.fully_qualified_name
-    else:
-        fq_name = f"{package.fully_qualified_name}.{mod_name}"
+    if mod_name != "__init__":
+        fully_qualified_name = f"{fully_qualified_name}.{mod_name}"
     module = Module(
         path=file_path,
         name=mod_name,
-        fully_qualified_name=fq_name,
-        package=package,
+        fully_qualified_name=fully_qualified_name,
         docstring=parse_module_docstring(module_ast),
         constants=[],
         functions=[],
         classes=[],
         exports=[],
     )
-    if file_path.name == "__init__":
+    parse_module_constants(module_ast, module, file_path, include_private)
+    parse_module_functions(module_ast, module, file_path, include_private)
+    parse_module_classes(module_ast, module, file_path, include_private)
+    if mod_name == "__init__":
         module.exports = parse_module_exports(module_ast)
-    parse_module_constants(module_ast, module, file_path)
-    parse_module_functions(module_ast, module, file_path)
-    parse_module_classes(module_ast, module, file_path)
+        parse_module_submodules(module, file_path, include_private)
     return module
 
 
-def crawl_package(package_path: Path) -> Package:
-    """Recursively crawl the package directory, parsing each .py file as a Module."""
+def crawl_package(package_path: Path, include_private: bool = False) -> Package:
+    """Recursively crawl the package directory, parsing each .py file as a Module.
+
+    If include_private is False, items (functions, classes, constants, submodules)
+    whose names start with a single underscore (but not dunder names like __init__)
+    are excluded.
+    """
     pkg_name = package_path.name
     package = Package(
         path=package_path, name=pkg_name, fully_qualified_name=pkg_name, modules=[]
     )
-    for file_path in package_path.rglob("*.py"):
-        module = parse_module(file_path, package)
+    modules = []
+    for file_path in package_path.glob("*.py"):
+        if (
+            not include_private
+            and file_path.stem.startswith("_")
+            and not file_path.stem.startswith("__")
+        ):
+            continue
+        module = parse_module(file_path, package.fully_qualified_name, include_private)
+        modules.append(module)
+
+    # Add all modules to the package (including nested)
+    while modules:
+        module = modules.pop()
         package.modules.append(module)
+        modules.extend(module.submodules)
+
     return package
 
 
@@ -351,330 +428,270 @@ def crawl_package(package_path: Path) -> Package:
 
 
 class MarkdownRenderer:
-    def __init__(self, include_private: bool = False):
-        self.include_private = include_private
-
-    @staticmethod
-    def slugify(text: str) -> str:
-        """Convert text to a slug suitable for use as an anchor."""
-        text = text.lower()
-        text = text.replace(".", "-")  # Replace dots with dashes.
-        text = re.sub(r"[^a-z0-9\s-]", "", text)
-        text = re.sub(r"\s+", "-", text).strip("-")
-        return text
-
-    def is_private(self, item: DocumentedItem) -> bool:
-        """Return True if the item is considered private."""
-        return not self.include_private and (
-            item.name.startswith("_")
-            and not (item.name.startswith("__") and item.name.endswith("__"))
+    def render(self, package: Package, output_path: Path | None = None) -> None:
+        """
+        Render the given package as Markdown. If output_path is None or '-', output to stdout.
+        If output_path is a directory, each module gets its own file; otherwise, all modules go into one file.
+        """
+        is_one_file = (
+            output_path is None or output_path.is_file() or output_path.suffix != ""
         )
-
-    def render_docstring(
-        self,
-        doc: docstring_parser.Docstring | None,
-        signature: str | None = None,
-    ) -> str:
-        """
-        Reformat the parsed docstring into Markdown.
-        This implementation produces Markdown by concatenating the short and long descriptions,
-        and listing parameters (with types if available), return info (with type), and exceptions.
-        """
-        if doc is None:
-            return ""
         lines = []
-        if doc.short_description:
-            lines.append(doc.short_description)
-            lines.append("")
-        if doc.long_description:
-            lines.append(doc.long_description)
-            lines.append("")
-        if signature:
-            lines.append("**Signature:**")
-            lines.append("")
-            lines.append("```python")
-            lines.append(signature)
-            lines.append("```")
-        if doc.attrs:
-            lines.append("**Attributes:**")
-            lines.append("")
-            for attr in doc.attrs:
-                attr_line = f"- `{attr.arg_name}`"
-                if attr.type_name:
-                    attr_line += f" (**{attr.type_name}**)"
-                attr_line += f": {attr.description}"
-                if attr.default:
-                    attr_line += f" (default: `{attr.default}`)"
-                if attr.is_optional:
-                    attr_line += " (optional)"
-                lines.append(attr_line)
-            lines.append("")
-        if doc.params:
-            lines.append("**Parameters:**")
-            lines.append("")
-            for param in doc.params:
-                param_line = f"- `{param.arg_name}`"
-                if param.type_name:
-                    param_line += f" (**{param.type_name}**)"
-                param_line += f": {param.description}"
-                if param.default:
-                    param_line += f" (default: `{param.default}`)"
-                if param.is_optional:
-                    param_line += " (optional)"
-                lines.append(param_line)
-            lines.append("")
-        if doc.examples:
-            lines.append("**Examples:**")
-            lines.append("")
-            for example in doc.examples:
-                if example.snippet:
-                    lines.append("```python")
-                    lines.append(example.snippet)
-                    lines.append("```")
-                    lines.append("")
-        if doc.returns:
-            lines.append("**Returns:**")
-            lines.append("")
-            ret_line = "- "
-            if doc.returns.type_name:
-                ret_line += f"(**{doc.returns.type_name}**) "
-            ret_line += f"{doc.returns.description}"
-            lines.append(ret_line)
-            lines.append("")
-        if doc.raises:
-            lines.append("**Raises:**")
-            for exception in doc.raises:
-                lines.append(f"- (**{exception.type_name}**) {exception.description}")
-            lines.append("")
-        return "\n".join(lines).strip()
-
-    def render_header(
-        self,
-        level: int,
-        item: DocumentedItem,
-    ) -> list[str]:
-        """Render a header using a documented data class."""
-        slug = self.slugify(item.name)
-        return [f'<a id="{slug}"></a>', f"{'#' * level} `{item.fully_qualified_name}`"]
-
-    def render_toc(self, root: Package | Module, file_links: bool = False) -> list[str]:
-        """
-        Render the table of contents based on the collected headers. If file_links is
-        True, links will be constructed as file references.
-
-        :param root: The root of the package to render
-        :type root: Package | Module
-        :param file_links: Whether to link to files rather than individual items
-        :type file_links: bool
-        :return: A list of lines to render
-        :rtype: list[str]
-        """
-        lines = []
-
-        def render_item(
-            level: int,
-            item: Package | Module | Class | Function | Constant,
-        ) -> None:
-            indent = "  " * (level - 1)
-            slug = self.slugify(item.name)
-            if file_links:
-                if isinstance(item, Module):
-                    # For a module, link to its file.
-                    filename = item.fully_qualified_name + ".md"
-                    link = f"[`{item.name}`]({filename})"
-                else:
-                    # For other items, find the module that owns them and add an anchor.
-                    parent = item
-                    while not isinstance(parent, Module):
-                        parent = parent.parent  # type: ignore
-                    filename = parent.fully_qualified_name + ".md"
-                    link = f"[`{item.name}`]({filename}#{slug})"
-            else:
-                link = f"[`{item.name}`](#{slug})"
-            lines.append(f"{indent}- {link}")
-            match item:
-                case Package():
-                    for module in item.modules:
-                        render_item(level + 1, module)
-                case Module():
-                    for constant in item.constants:
-                        if self.is_private(constant):
-                            continue
-                        render_item(level + 1, constant)
-                    for cls in item.classes:
-                        if self.is_private(cls):
-                            continue
-                        render_item(level + 1, cls)
-                    for func in item.functions:
-                        if self.is_private(func):
-                            continue
-                        render_item(level + 1, func)
-                case Class():
-                    for cls in item.classes:
-                        if self.is_private(cls):
-                            continue
-                        render_item(level + 1, cls)
-                    for func in item.functions:
-                        if self.is_private(func):
-                            continue
-                        render_item(level + 1, func)
-                case _:
-                    pass
-
-        render_item(1, root)
+        lines.append(f"# `{package.name}`")
         lines.append("")
+        lines.append("## Table of Contents")
+        lines.append("")
+        for module in package.modules:
+            link = (
+                f"#{self.anchor(module.fully_qualified_name)}"
+                if is_one_file
+                else f"{module.fully_qualified_name}.md"
+            )
+            lines.append(f"- [{module.fully_qualified_name}]({link})")
+        lines.append("")
+
+        if is_one_file:
+            # Render all modules
+            for module in package.modules:
+                lines.extend(self.render_module(module))
+                lines.append("")
+            output = "\n".join(lines)
+            if output_path is None:
+                print(output)
+            else:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(output, encoding="utf8")
+        elif output_path is not None:
+            # If the output path has no suffix, treat it as a directory.
+            output_path.mkdir(parents=True, exist_ok=True)
+            for module in package.modules:
+                module_lines = self.render_module(module)
+                module_output = "\n".join(module_lines)
+                # File name derived from fully qualified name (dots replaced with underscores)
+                file_name = f"{module.fully_qualified_name}.md"
+                file_path = output_path / file_name
+                file_path.write_text(module_output, encoding="utf8")
+            (output_path / "index.md").write_text("\n".join(lines), encoding="utf8")
+
+    def render_module(self, module: Module, level: int = 2) -> list[str]:
+        """
+        Render a module section that includes the module's signature (if any), its docstring details,
+        and a table of contents linking to its classes, functions, constants, exports, and submodules.
+        """
+        lines: list[str] = []
+        header_prefix = "#" * level
+        # Module header with an HTML anchor.
+        lines.append(
+            f'{header_prefix} {module.fully_qualified_name} <a name="{self.anchor(module.fully_qualified_name)}"></a>'
+        )
+        lines.append("")
+
+        # Render module docstring details if available.
+        if module.docstring:
+            lines.extend(self.render_docstring(module.docstring))
+
+        # Second-level table of contents for this module.
+        lines.append(f"{header_prefix}# Contents")
+        lines.append("")
+        if module.exports:
+            # Create links for each export; assume exports are names defined in __init__.
+            export_links = ", ".join(
+                f"[{exp}](#{self.anchor(module.fully_qualified_name + '.' + exp)})"
+                for exp in module.exports
+            )
+            lines.append(f"- **Exports:** {export_links}")
+        if module.classes:
+            lines.append("- **Classes:**")
+            for cls in module.classes:
+                lines.extend(self.render_class_toc(cls, indent=1))
+        if module.functions:
+            lines.append("- **Functions:**")
+            for func in module.functions:
+                lines.append(
+                    "  " * 1
+                    + f"- [{func.name}](#{self.anchor(func.fully_qualified_name)})"
+                )
+        if module.constants:
+            lines.append("- **Constants:**")
+            for const in module.constants:
+                lines.append(
+                    "  " * 1
+                    + f"- [{const.name}](#{self.anchor(module.fully_qualified_name + '.' + const.name)})"
+                )
+        if module.submodules:
+            lines.append("- **Submodules:**")
+            for submod in module.submodules:
+                lines.append(
+                    "  " * 1
+                    + f"- [{submod.fully_qualified_name}](#{self.anchor(submod.fully_qualified_name)})"
+                )
+        lines.append("")
+
+        # Detailed sections.
+        if module.exports:
+            lines.append("#### Exports")
+            lines.append("")
+            for exp in module.exports:
+                lines.append(f"- `{exp}`")
+            lines.append("")
+        if module.constants:
+            lines.append("#### Constants")
+            lines.append("")
+            for const in module.constants:
+                type_str = f": {const.type}" if const.type else ""
+                lines.append(f"- **{const.name}**{type_str}")
+                lines.append("")
+                lines.append("```python")
+                lines.append(f"{const.name} = {const.value}")
+                lines.append("```")
+                lines.append("")
+        if module.functions:
+            lines.append("#### Functions")
+            lines.append("")
+            for func in module.functions:
+                lines.extend(self.render_function(func, level=level + 1))
+            lines.append("")
+        if module.classes:
+            lines.append("#### Classes")
+            lines.append("")
+            for cls in module.classes:
+                lines.extend(self.render_class_details(cls, level=level + 1))
+            lines.append("")
+        if module.submodules:
+            lines.append("#### Submodules")
+            lines.append("")
+            for submod in module.submodules:
+                lines.extend(self.render_module(submod, level=level + 1))
+            lines.append("")
+
         return lines
 
-    def render_constant(self, const: Constant, heading_level: int) -> list[str]:
-        """Render a constant to Markdown and return the lines as a list of strings."""
-        # Skip if private.
-        if self.is_private(const):
-            return []
-        lines = []
-        lines.extend(self.render_header(heading_level, const))
+    def render_class_toc(self, cls: Class, indent: int) -> list[str]:
+        """Render a TOC entry for a class and its nested classes."""
+        lines: list[str] = []
+        indent_str = "  " * indent
+        lines.append(
+            f"{indent_str}- [{cls.name}](#{self.anchor(cls.fully_qualified_name)})"
+        )
+        for nested in cls.classes:
+            lines.extend(self.render_class_toc(nested, indent + 1))
+        return lines
+
+    def render_class_details(self, cls: Class, level: int) -> list[str]:
+        """
+        Render detailed documentation for a class including its signature, docstring details,
+        its methods, and any nested classes.
+        """
+        lines: list[str] = []
+        header_prefix = "#" * level
+        lines.append(
+            f'{header_prefix} {cls.fully_qualified_name} <a name="{self.anchor(cls.fully_qualified_name)}"></a>'
+        )
         lines.append("")
         lines.append("```python")
-        if const.type:
-            lines.append(f"{const.name}: {const.type} = {const.value}")
-        else:
-            lines.append(f"{const.name} = {const.value}")
+        lines.append(cls.signature)
         lines.append("```")
         lines.append("")
+        if cls.docstring:
+            lines.extend(self.render_docstring(cls.docstring))
+        if cls.functions:
+            lines.append("**Methods:**")
+            lines.append("")
+            for func in cls.functions:
+                lines.extend(self.render_function(func, level=level + 1))
+            lines.append("")
+        if cls.classes:
+            lines.append("**Nested Classes:**")
+            lines.append("")
+            for nested in cls.classes:
+                lines.extend(self.render_class_details(nested, level=level + 1))
+            lines.append("")
         return lines
 
-    def render_function(self, func: Function, heading_level: int) -> list[str]:
-        """Render a function or method to Markdown and return the lines as a list of strings."""
-        if self.is_private(func):
-            return []
-        doc = self.render_docstring(func.docstring, func.signature)
-        lines = []
-        lines.extend(self.render_header(heading_level, func))
+    def render_function(self, func: Function, level: int) -> list[str]:
+        """
+        Render detailed documentation for a function/method including its signature and
+        docstring details (parameters, returns, raises, etc.).
+        """
+        lines: list[str] = []
+        header_prefix = "#" * level
+        lines.append(
+            f'{header_prefix} {func.fully_qualified_name} <a name="{self.anchor(func.fully_qualified_name)}"></a>'
+        )
         lines.append("")
-        if doc:
-            lines.append(doc)
-            lines.append("")
-        return lines
-
-    def render_class(self, cls: Class, heading_level: int) -> list[str]:
-        """Recursively render a class, its signature, its methods, and nested classes."""
-        if self.is_private(cls):
-            return []
-        md = []
-        md.extend(self.render_header(heading_level, cls))
-        md.append("")
-        doc = self.render_docstring(cls.docstring, cls.signature)
-        if doc:
-            md.append(doc)
-            md.append("")
-        child_lines = []
-        for method in cls.functions:
-            if self.is_private(method):
-                continue
-            rendered = self.render_function(method, heading_level=heading_level + 1)
-            if rendered:
-                child_lines.extend(rendered)
-        for nested in cls.classes:
-            rendered = self.render_class(nested, heading_level=heading_level + 1)
-            if rendered:
-                child_lines.extend(rendered)
-                child_lines.append("")
-        md.extend(child_lines)
-        return md
-
-    def render_module(self, module: Module, include_toc: bool = False) -> list[str]:
-        """Render a module and its children."""
-        lines = []
-        lines.extend(self.render_header(2, module))
+        lines.append("```python")
+        lines.append(func.signature)
+        lines.append("```")
         lines.append("")
-
-        if include_toc:
-            lines.extend(self.render_toc(module))
-            lines.append("")
-
-        module_doc = self.render_docstring(module.docstring)
-        if module_doc:
-            lines.append(module_doc)
-            lines.append("")
-        if module.exports:
-            for export in module.exports:
-                lines.append(f"- `{export}`")
-            lines.append("")
-
-        children_lines = []
-        for const in module.constants:
-            rendered = self.render_constant(const, heading_level=3)
-            if rendered:
-                children_lines.extend(rendered)
-        for func in module.functions:
-            rendered = self.render_function(func, heading_level=3)
-            if rendered:
-                children_lines.extend(rendered)
-        for cls in module.classes:
-            rendered = self.render_class(cls, heading_level=3)
-            if rendered:
-                children_lines.extend(rendered)
-                children_lines.append("")
-        lines.extend(children_lines)
+        if func.docstring:
+            lines.extend(self.render_docstring(func.docstring))
         return lines
 
-    def render_package(self, package: Package, include_toc: bool = False) -> list[str]:
+    def render_docstring(
+        self, doc: docstring_parser.Docstring, indent: int = 0
+    ) -> list[str]:
         """
-        Render the Package as a Markdown string.
-        The table of contents is inserted immediately after the package header.
+        Render detailed docstring information including description, parameters,
+        returns, raises, and attributes. An indent level can be provided for nested output.
         """
-        lines = []
-        lines.extend(self.render_header(1, package))
-        lines.append("")
-        if include_toc:
-            lines.extend(self.render_toc(package))
+        indent_str = "  " * indent
+        lines: list[str] = []
+        if doc.short_description:
+            lines.append(f"{indent_str}{doc.short_description}")
             lines.append("")
-        for module in package.modules:
-            rendered_module = self.render_module(module)
-            if rendered_module:
-                lines.extend(rendered_module)
+        if doc.long_description:
+            lines.append(f"{indent_str}{doc.long_description}")
+            lines.append("")
+        if doc.params:
+            lines.append(f"{indent_str}**Parameters:**")
+            lines.append("")
+            for param in doc.params:
+                line = f"{indent_str}- **{param.arg_name}**"
+                if param.type_name:
+                    line += f" (`{param.type_name}`)"
+                if param.default:
+                    line += f" (default: `{param.default}`)"
+                if param.description:
+                    line += f": {param.description}"
+                lines.append(line)
+            lines.append("")
+        if doc.returns:
+            lines.append(f"{indent_str}**Returns:**")
+            lines.append("")
+            ret_line = ""
+            if doc.returns.type_name:
+                ret_line += f"`{doc.returns.type_name}`"
+            if doc.returns.description:
+                ret_line += f": {doc.returns.description}"
+            lines.append(f"{indent_str}- {ret_line}")
+            lines.append("")
+        if doc.raises:
+            lines.append(f"{indent_str}**Raises:**")
+            lines.append("")
+            for raise_item in doc.raises:
+                lines.append(
+                    f"{indent_str}- **{raise_item.type_name}**: {raise_item.description}"
+                )
+            lines.append("")
+        if doc.attrs:
+            lines.append(f"{indent_str}**Attributes:**")
+            lines.append("")
+            for attr in doc.attrs:
+                line = f"{indent_str}- **{attr.arg_name}**"
+                if attr.type_name:
+                    line += f" (`{attr.type_name}`)"
+                if attr.description:
+                    line += f": {attr.description}"
+                lines.append(line)
+            lines.append("")
         return lines
 
-    def render(self, root: Package | Module, include_toc: bool = False) -> list[str]:
-        """Render the root object as Markdown and return the lines as a list of strings."""
-        match root:
-            case Package():
-                return self.render_package(root, include_toc)
-            case Module():
-                return self.render_module(root, include_toc)
-            case _:
-                raise ValueError(f"Unsupported root type: {type(root)}")
-
-    def render_file(
-        self,
-        root: Package | Module,
-        path: Path,
-        include_toc: bool = False,
-    ) -> None:
-        """Render the root object as Markdown and write it to a file."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf8") as f:
-            f.write("\n".join(self.render(root, include_toc)))
-
-    def render_files(
-        self,
-        package: Package,
-        path: Path,
-        include_toc: bool = False,
-    ) -> None:
+    def anchor(self, fq_name: str) -> str:
         """
-        Render a package to a series of files, one for each module. Renders an
-        index file named after the package at the given path that includes a table of
-        contents for all modules, classes, functions, and constants.
+        Generate a sanitized anchor from a fully qualified name.
+        This implementation replaces dots with hyphens.
         """
-        assert path.is_dir()
-        path.mkdir(parents=True, exist_ok=True)
-        package_path = path / (package.fully_qualified_name + ".md")
-        toc_lines = self.render_toc(package, file_links=True)
-        with package_path.open("w", encoding="utf8") as f:
-            f.write("\n".join(toc_lines))
-        for module in package.modules:
-            module_path = path / (module.fully_qualified_name + ".md")
-            self.render_file(module, module_path, include_toc=include_toc)
+        return fq_name.replace(".", "-")
 
 
 # --- Main function ---
@@ -682,24 +699,18 @@ class MarkdownRenderer:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Crawl a Python package and extract docstrings."
+        description="Crawl a Python package and extract docstrings into Markdown."
     )
     parser.add_argument("package_path", help="Path to the Python package directory")
+    parser.add_argument(
+        "output_path",
+        help="Path to write the Markdown file(s)"
+        "Can be a directory or a single file. If a directory, each module will get its own file.",
+    )
     parser.add_argument(
         "--include-private",
         action="store_true",
         help="Include private functions, classes, and constants (names starting with '_')",
-    )
-    parser.add_argument(
-        "--exclude-toc",
-        dest="exclude_toc",
-        action="store_true",
-        help="Exclude a table of contents from the output",
-    )
-    parser.add_argument(
-        "--path",
-        help="Optional output path. If a file, the output is written to that file. "
-        "If a directory, one file per module is generated. If not provided, output is printed to stdout.",
     )
     args = parser.parse_args()
     package_dir = Path(args.package_path)
@@ -708,19 +719,11 @@ def main() -> None:
         print(f"Error: {package_dir} is not a directory.")
         return
 
-    package = crawl_package(package_dir)
-    renderer = MarkdownRenderer(include_private=args.include_private)
-    include_toc = not args.exclude_toc
+    package = crawl_package(package_dir, include_private=args.include_private)
+    renderer = MarkdownRenderer()
 
-    if args.path:
-        output_path = Path(args.path)
-        if output_path.is_dir():
-            renderer.render_files(package, output_path, include_toc=include_toc)
-        else:
-            renderer.render_file(package, output_path, include_toc=include_toc)
-    else:
-        markdown_output = renderer.render(package, include_toc=include_toc)
-        print("\n".join(markdown_output))
+    output_path = Path(args.output_path)
+    renderer.render(package, output_path)
 
 
 if __name__ == "__main__":
