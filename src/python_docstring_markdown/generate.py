@@ -447,7 +447,7 @@ class MarkdownRenderer:
         lines.append("")
         for module in package.modules:
             link = self.link(module, is_in_file=is_one_file)
-            lines.append(f"- [{module.fully_qualified_name}]({link})")
+            lines.append(f"- 🅼 [{module.fully_qualified_name}]({link})")
         lines.append("")
 
         if is_one_file:
@@ -484,7 +484,7 @@ class MarkdownRenderer:
         header_prefix = "#" * level
         # Module header with an HTML anchor.
         lines.append(f'<a name="{self.anchor(module.fully_qualified_name)}"></a>')
-        lines.append(f"{header_prefix} {module.fully_qualified_name}")
+        lines.append(f"{header_prefix} 🅼 {module.fully_qualified_name}")
         lines.append("")
 
         # Render module docstring details if available.
@@ -496,11 +496,11 @@ class MarkdownRenderer:
         if module.constants:
             lines.append("- **Constants:**")
             for const in module.constants:
-                lines.append("  " * 1 + f"- [{const.name}]({self.link(module, const)})")
+                lines.append("  " * 1 + f"- 🆅 [{const.name}]({self.link(module, const)})")
         if module.functions:
             lines.append("- **Functions:**")
             for func in module.functions:
-                lines.append("  " * 1 + f"- [{func.name}]({self.link(module, func)})")
+                lines.append("  " * 1 + f"- 🅵 [{func.name}]({self.link(module, func)})")
         if module.classes:
             lines.append("- **Classes:**")
             for cls in module.classes:
@@ -545,7 +545,7 @@ class MarkdownRenderer:
                 # Hack since we have the fqn for a module as a string
                 fqn = f"{module.fully_qualified_name}.{exp}"
                 link = f"#{self.anchor(fqn)}" if is_one_file else f"{fqn}.md"
-                lines.append(f"- [`{exp}`]({link})")
+                lines.append(f"- 🅼 [`{exp}`]({link})")
             lines.append("")
 
         return lines
@@ -555,7 +555,7 @@ class MarkdownRenderer:
         lines: list[str] = []
         indent_str = "  " * indent
         lines.append(
-            f"{indent_str}- [{cls.name}]({self.link(module, cls)})",
+            f"{indent_str}- 🅲 [{cls.name}]({self.link(module, cls)})",
         )
         for nested in cls.classes:
             lines.extend(self.render_class_toc(module, nested, indent + 1))
@@ -569,7 +569,7 @@ class MarkdownRenderer:
         lines: list[str] = []
         header_prefix = "#" * level
         lines.append(f'<a name="{self.anchor(cls.fully_qualified_name)}"></a>')
-        lines.append(f"{header_prefix} {cls.fully_qualified_name}")
+        lines.append(f"{header_prefix} 🅲 {cls.fully_qualified_name}")
         lines.append("")
         lines.append("```python")
         lines.append(cls.signature)
@@ -578,7 +578,7 @@ class MarkdownRenderer:
         if cls.docstring:
             lines.extend(self.render_docstring(cls.docstring))
         if cls.functions:
-            lines.append("**Methods:**")
+            lines.append("**Functions:**")
             lines.append("")
             for func in cls.functions:
                 lines.extend(self.render_function(func, level=level + 1))
@@ -599,7 +599,7 @@ class MarkdownRenderer:
         lines: list[str] = []
         header_prefix = "#" * level
         lines.append(f'<a name="{self.anchor(func.fully_qualified_name)}"></a>')
-        lines.append(f"{header_prefix} {func.fully_qualified_name}")
+        lines.append(f"{header_prefix} 🅵 {func.fully_qualified_name}")
         lines.append("")
         lines.append("```python")
         lines.append(func.signature)
