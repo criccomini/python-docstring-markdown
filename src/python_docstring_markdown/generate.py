@@ -431,6 +431,17 @@ def crawl_package(package_path: Path, include_private: bool = False) -> Package:
 # --- Renderer Classes ---
 
 
+_MARKDOWN_CHARACTERS_TO_ESCAPE = set(r"\`*_{}[]<>()#+.!|")
+
+
+# From https://stackoverflow.com/questions/68699165/how-to-escape-texts-for-formatting-in-python
+def escaped_markdown(text: str) -> str:
+    return "".join(
+        f"\\{character}" if character in _MARKDOWN_CHARACTERS_TO_ESCAPE else character
+        for character in text.strip()
+    )
+
+
 class MarkdownRenderer:
     def render(self, package: Package, output_path: Path | None = None) -> None:
         """
@@ -633,10 +644,10 @@ class MarkdownRenderer:
         indent_str = "  " * indent
         lines: list[str] = []
         if doc.short_description:
-            lines.append(f"{indent_str}{doc.short_description.strip()}")
+            lines.append(f"{indent_str}{escaped_markdown(doc.short_description)}")
             lines.append("")
         if doc.long_description:
-            lines.append(f"{indent_str}{doc.long_description.strip()}")
+            lines.append(f"{indent_str}{escaped_markdown(doc.long_description)}")
             lines.append("")
         if doc.params:
             lines.append(f"{indent_str}**Parameters:**")
@@ -648,7 +659,7 @@ class MarkdownRenderer:
                 if param.default:
                     line += f" (default: `{param.default}`)"
                 if param.description:
-                    line += f": {param.description.strip()}"
+                    line += f": {escaped_markdown(param.description)}"
                 lines.append(line)
             lines.append("")
         if doc.attrs:
@@ -659,7 +670,7 @@ class MarkdownRenderer:
                 if attr.type_name:
                     line += f" (`{attr.type_name}`)"
                 if attr.description:
-                    line += f": {attr.description.strip()}"
+                    line += f": {escaped_markdown(attr.description)}"
                 lines.append(line)
             lines.append("")
         if doc.returns:
@@ -669,7 +680,7 @@ class MarkdownRenderer:
             if doc.returns.type_name:
                 ret_line += f"`{doc.returns.type_name}`: "
             if doc.returns.description:
-                ret_line += f"{doc.returns.description.strip()}"
+                ret_line += f"{escaped_markdown(doc.returns.description)}"
             else:
                 # Trim the trailing colon if no description is provided.
                 ret_line = ret_line[:-2]
@@ -681,7 +692,7 @@ class MarkdownRenderer:
             for raise_item in doc.raises:
                 raise_line = f"{indent_str}- **{raise_item.type_name}**: "
                 if raise_item.description:
-                    raise_line += f"{raise_item.description.strip()}"
+                    raise_line += f"{escaped_markdown(raise_item.description)}"
                 else:
                     raise_line = raise_line[:-2]
                 lines.append(raise_line)
