@@ -473,7 +473,9 @@ class MarkdownRenderer:
             # Write the index file table of contents linking to each module
             (output_path / "index.md").write_text("\n".join(lines), encoding="utf8")
 
-    def render_module(self, module: Module, level: int = 2, is_one_file: bool = True) -> list[str]:
+    def render_module(
+        self, module: Module, level: int = 2, is_one_file: bool = True
+    ) -> list[str]:
         """
         Render a module section that includes the module's signature (if any), its docstring details,
         and a table of contents linking to its classes, functions, constants, exports, and submodules.
@@ -494,7 +496,9 @@ class MarkdownRenderer:
         lines.append(f"{header_prefix}# Contents")
         lines.append("")
         if module.exports:
-            lines.append(f"- **[Exports](#{self.anchor(module.fully_qualified_name)}-exports)**")
+            lines.append(
+                f"- **[Exports](#{self.anchor(module.fully_qualified_name)}-exports)**"
+            )
         if module.classes:
             lines.append("- **Classes:**")
             for cls in module.classes:
@@ -502,22 +506,18 @@ class MarkdownRenderer:
         if module.functions:
             lines.append("- **Functions:**")
             for func in module.functions:
-                lines.append(
-                    "  " * 1
-                    + f"- [{func.name}]({self.link(module, func)})"
-                )
+                lines.append("  " * 1 + f"- [{func.name}]({self.link(module, func)})")
         if module.constants:
             lines.append("- **Constants:**")
             for const in module.constants:
-                lines.append(
-                    "  " * 1
-                    + f"- [{const.name}]({self.link(module, const)})"
-                )
+                lines.append("  " * 1 + f"- [{const.name}]({self.link(module, const)})")
         lines.append("")
 
         # Detailed sections.
         if module.exports:
-            lines.append(f'<a name="{self.anchor(module.fully_qualified_name)}-exports"></a>')
+            lines.append(
+                f'<a name="{self.anchor(module.fully_qualified_name)}-exports"></a>'
+            )
             lines.append("#### Exports")
             lines.append("")
             for exp in module.exports:
@@ -679,8 +679,12 @@ class MarkdownRenderer:
         """
         return fq_name.replace(".", "-")
 
-
-    def link(self, module: Module, item: DocumentedItem | None = None, is_in_file: bool = True) -> str:
+    def link(
+        self,
+        module: Module,
+        item: DocumentedItem | None = None,
+        is_in_file: bool = True,
+    ) -> str:
         """
         Generate a link to a fully qualified name.
         """
