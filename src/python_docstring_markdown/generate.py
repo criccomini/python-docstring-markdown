@@ -413,13 +413,17 @@ def crawl_package(package_path: Path, include_private: bool = False) -> Package:
         ):
             continue
         module = parse_module(file_path, package.fully_qualified_name, include_private)
-        modules.append(module)
+        if module.name == "__init__":
+            modules.append(module)
 
     # Add all modules to the package (including nested)
     while modules:
         module = modules.pop()
         package.modules.append(module)
         modules.extend(module.submodules)
+
+    # Sort package.modules by fully_qualified_name
+    package.modules.sort(key=lambda m: m.fully_qualified_name)
 
     return package
 
