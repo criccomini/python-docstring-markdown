@@ -473,6 +473,20 @@ class MarkdownRenderer:
             # Write the index file table of contents linking to each module
             (output_path / "index.md").write_text("\n".join(lines), encoding="utf8")
 
+    def render_constant(self, const: Constant, level: int = 2) -> list[str]:
+        lines: list[str] = []
+        header_prefix = "#" * level
+        type_str = f": {const.type}" if const.type else ""
+        # Constant header with an HTML anchor.
+        lines.append(f'<a name="{self.anchor(const.fully_qualified_name)}"></a>')
+        lines.append(f"{header_prefix} 🆅 {const.fully_qualified_name}")
+        lines.append("")
+        lines.append("```python")
+        lines.append(f"{const.name}{type_str} = {const.value}")
+        lines.append("```")
+        lines.append("")
+        return lines
+
     def render_module(
         self, module: Module, level: int = 2, is_one_file: bool = True
     ) -> list[str]:
@@ -496,7 +510,9 @@ class MarkdownRenderer:
         if module.constants:
             lines.append("- **Constants:**")
             for const in module.constants:
-                lines.append("  " * 1 + f"- 🆅 [{const.name}]({self.link(module, const)})")
+                lines.append(
+                    "  " * 1 + f"- 🆅 [{const.name}]({self.link(module, const)})"
+                )
         if module.functions:
             lines.append("- **Functions:**")
             for func in module.functions:
@@ -516,13 +532,7 @@ class MarkdownRenderer:
             lines.append(f"{header_prefix}# Constants")
             lines.append("")
             for const in module.constants:
-                type_str = f": {const.type}" if const.type else ""
-                lines.append(f"- **{const.name}**{type_str}")
-                lines.append("")
-                lines.append("```python")
-                lines.append(f"{const.name} = {const.value}")
-                lines.append("```")
-                lines.append("")
+                lines.extend(self.render_constant(const, level=level + 1))
         if module.functions:
             lines.append(f"{header_prefix}# Functions")
             lines.append("")

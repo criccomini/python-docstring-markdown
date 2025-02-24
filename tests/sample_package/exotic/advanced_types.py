@@ -9,6 +9,9 @@ from typing import Generic, TypeVar
 
 T = TypeVar("T")
 S = TypeVar("S", bound="Serializable")
+"""
+Serializable container type.
+"""
 
 
 class Serializable(Generic[T]):
