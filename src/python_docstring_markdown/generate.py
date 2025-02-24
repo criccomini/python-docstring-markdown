@@ -169,7 +169,7 @@ def parse_function(
         path=file_path,
         name=node.name,
         fully_qualified_name=fq_name,
-        signature=signature,
+        signature=f"def {signature}:",
         docstring=parsed_doc,
     )
 
@@ -662,9 +662,12 @@ class MarkdownRenderer:
             lines.append("")
             ret_line = ""
             if doc.returns.type_name:
-                ret_line += f"`{doc.returns.type_name}`"
+                ret_line += f"`{doc.returns.type_name}`: "
             if doc.returns.description:
-                ret_line += f": {doc.returns.description}"
+                ret_line += f"{doc.returns.description}"
+            else:
+                # Trim the trailing colon if no description is provided.
+                ret_line = ret_line[:-2]
             lines.append(f"{indent_str}- {ret_line}")
             lines.append("")
         if doc.raises:
