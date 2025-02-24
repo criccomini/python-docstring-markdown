@@ -465,6 +465,7 @@ class MarkdownRenderer:
             # Render all modules
             for module in package.modules:
                 lines.extend(self.render_module(module, is_one_file=is_one_file))
+            lines.append("")
             output = "\n".join(lines)
             if output_path is None:
                 print(output)
@@ -477,10 +478,12 @@ class MarkdownRenderer:
             for module in package.modules:
                 file_name = self.link(module, is_in_file=is_one_file)
                 module_lines = self.render_module(module, is_one_file=is_one_file)
+                module_lines.append("")
                 module_output = "\n".join(module_lines)
                 file_path = output_path / file_name
                 file_path.write_text(module_output, encoding="utf8")
             # Write the index file table of contents linking to each module
+            lines.append("")
             (output_path / "index.md").write_text("\n".join(lines), encoding="utf8")
 
     def render_constant(self, const: Constant, level: int = 2) -> list[str]:

@@ -29,11 +29,17 @@ def docs_file(test_dir):
 @pytest.fixture(scope="session")
 def generated_markdown(sample_package_dir):
     """Generate and load the documentation content."""
-    package = crawl_package(Path(sample_package_dir))
-    renderer = MarkdownRenderer()
-    markdown_output = renderer.render(package)
+    # Creat a temporary file path
+    import tempfile
 
-    yield "\n".join(markdown_output or [])
+    with tempfile.NamedTemporaryFile() as tmp_file:
+        tmp_docs_file = Path(tmp_file.name)
+        package = crawl_package(Path(sample_package_dir))
+        renderer = MarkdownRenderer()
+        renderer.render(package, tmp_docs_file)
+        generated_markdown = tmp_docs_file.read_text(encoding="utf8")
+
+    yield generated_markdown
 
 
 def test_generated_markdown(generated_markdown, docs_file):
@@ -49,6 +55,5 @@ def test_generated_markdown(generated_markdown, docs_file):
                 generated_markdown.splitlines(keepends=True),
             )
         )
-        # print("".join(diff), end="")
-        print(generated_markdown)
+        print("\n".join(diff))
         raise AssertionError("Generated markdown does not match expected content.")
