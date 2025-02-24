@@ -442,18 +442,14 @@ class MarkdownRenderer:
         lines.append("## Table of Contents")
         lines.append("")
         for module in package.modules:
-            link = (
-                f"#{self.anchor(module.fully_qualified_name)}"
-                if is_one_file
-                else f"{module.fully_qualified_name}.md"
-            )
+            link = self.link(module, is_in_file=is_one_file)
             lines.append(f"- [{module.fully_qualified_name}]({link})")
         lines.append("")
 
         if is_one_file:
             # Render all modules
             for module in package.modules:
-                lines.extend(self.render_module(module))
+                lines.extend(self.render_module(module, is_one_file=is_one_file))
                 lines.append("")
             output = "\n".join(lines)
             if output_path is None:
@@ -465,15 +461,15 @@ class MarkdownRenderer:
             # If the output path has no suffix, treat it as a directory.
             output_path.mkdir(parents=True, exist_ok=True)
             for module in package.modules:
-                module_lines = self.render_module(module)
+                file_name = self.link(module, is_in_file=is_one_file)
+                module_lines = self.render_module(module, is_one_file=is_one_file)
                 module_output = "\n".join(module_lines)
-                # File name derived from fully qualified name (dots replaced with underscores)
-                file_name = f"{module.fully_qualified_name}.md"
                 file_path = output_path / file_name
                 file_path.write_text(module_output, encoding="utf8")
+            # Write the index file table of contents linking to each module
             (output_path / "index.md").write_text("\n".join(lines), encoding="utf8")
 
-    def render_module(self, module: Module, level: int = 2) -> list[str]:
+    def render_module(self, module: Module, level: int = 2, is_one_file: bool = True) -> list[str]:
         """
         Render a module section that includes the module's signature (if any), its docstring details,
         and a table of contents linking to its classes, functions, constants, exports, and submodules.
@@ -494,38 +490,37 @@ class MarkdownRenderer:
         lines.append(f"{header_prefix}# Contents")
         lines.append("")
         if module.exports:
-            # Create links for each export; assume exports are names defined in __init__.
-            export_links = ", ".join(
-                f"[{exp}](#{self.anchor(module.fully_qualified_name + '.' + exp)})"
-                for exp in module.exports
-            )
-            lines.append(f"- **Exports:** {export_links}")
+            lines.append(f"- **[Exports](#{self.anchor(module.fully_qualified_name)}-exports)**")
         if module.classes:
             lines.append("- **Classes:**")
             for cls in module.classes:
-                lines.extend(self.render_class_toc(cls, indent=1))
+                lines.extend(self.render_class_toc(module, cls, indent=1))
         if module.functions:
             lines.append("- **Functions:**")
             for func in module.functions:
                 lines.append(
                     "  " * 1
-                    + f"- [{func.name}](#{self.anchor(func.fully_qualified_name)})"
+                    + f"- [{func.name}]({self.link(module, func)})"
                 )
         if module.constants:
             lines.append("- **Constants:**")
             for const in module.constants:
                 lines.append(
                     "  " * 1
-                    + f"- [{const.name}](#{self.anchor(module.fully_qualified_name + '.' + const.name)})"
+                    + f"- [{const.name}]({self.link(module, const)})"
                 )
         lines.append("")
 
         # Detailed sections.
         if module.exports:
+            lines.append(f'<a name="{self.anchor(module.fully_qualified_name)}-exports"></a>')
             lines.append("#### Exports")
             lines.append("")
             for exp in module.exports:
-                lines.append(f"- `{exp}`")
+                # Hack since we have the fqn for a module as a string
+                fqn = f"{module.fully_qualified_name}.{exp}"
+                link = f"#{self.anchor(fqn)}" if is_one_file else f"{fqn}.md"
+                lines.append(f"- [`{exp}`]({link})")
             lines.append("")
         if module.constants:
             lines.append("#### Constants")
@@ -553,15 +548,15 @@ class MarkdownRenderer:
 
         return lines
 
-    def render_class_toc(self, cls: Class, indent: int) -> list[str]:
+    def render_class_toc(self, module: Module, cls: Class, indent: int) -> list[str]:
         """Render a TOC entry for a class and its nested classes."""
         lines: list[str] = []
         indent_str = "  " * indent
         lines.append(
-            f"{indent_str}- [{cls.name}](#{self.anchor(cls.fully_qualified_name)})"
+            f"{indent_str}- [{cls.name}]({self.link(module, cls)})",
         )
         for nested in cls.classes:
-            lines.extend(self.render_class_toc(nested, indent + 1))
+            lines.extend(self.render_class_toc(module, nested, indent + 1))
         return lines
 
     def render_class_details(self, cls: Class, level: int) -> list[str]:
@@ -679,6 +674,21 @@ class MarkdownRenderer:
         This implementation replaces dots with hyphens.
         """
         return fq_name.replace(".", "-")
+
+
+    def link(self, module: Module, item: DocumentedItem | None = None, is_in_file: bool = True) -> str:
+        """
+        Generate a link to a fully qualified name.
+        """
+        match (item, is_in_file):
+            case (None, True):
+                return f"#{self.anchor(module.fully_qualified_name)}"
+            case (None, False):
+                return f"{module.fully_qualified_name}.md"
+            case (item, True):
+                return f"#{self.anchor(item.fully_qualified_name)}"
+            case (item, False):
+                return f"{module.fully_qualified_name}.md#{self.anchor(item.fully_qualified_name)}"
 
 
 # --- Main function ---
