@@ -518,13 +518,6 @@ class MarkdownRenderer:
                     "  " * 1
                     + f"- [{const.name}](#{self.anchor(module.fully_qualified_name + '.' + const.name)})"
                 )
-        if module.submodules:
-            lines.append("- **Submodules:**")
-            for submod in module.submodules:
-                lines.append(
-                    "  " * 1
-                    + f"- [{submod.fully_qualified_name}](#{self.anchor(submod.fully_qualified_name)})"
-                )
         lines.append("")
 
         # Detailed sections.
@@ -556,12 +549,6 @@ class MarkdownRenderer:
             lines.append("")
             for cls in module.classes:
                 lines.extend(self.render_class_details(cls, level=level + 1))
-            lines.append("")
-        if module.submodules:
-            lines.append("#### Submodules")
-            lines.append("")
-            for submod in module.submodules:
-                lines.extend(self.render_module(submod, level=level + 1))
             lines.append("")
 
         return lines
