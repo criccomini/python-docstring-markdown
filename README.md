@@ -24,12 +24,12 @@ pip install python-docstring-markdown
 ### Command Line
 
 ```bash
-python -m python_docstring_markdown <package_dir> <output_file>
+python -m python_docstring_markdown <package_dir> <output_path>
 ```
 
 Arguments:
-- `package_dir`: Path to your Python package directory
-- `output_file`: Path where the Markdown documentation file will be saved
+- `package_dir`: Path to your Python package directory.
+- `output_path`: Path where the Markdown documentation file will be saved. A path that ends in `.md` will result in a single file. A directory path will result in one `.md` per-module.
 
 Example:
 ```bash
