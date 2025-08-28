@@ -11,6 +11,7 @@
 - 🅼 [sample\_package\.exotic\.descriptors](#sample_package-exotic-descriptors)
 - 🅼 [sample\_package\.exotic\.protocols](#sample_package-exotic-protocols)
 - 🅼 [sample\_package\.models](#sample_package-models)
+- 🅼 [sample\_package\.stub](#sample_package-stub)
 - 🅼 [sample\_package\.utils](#sample_package-utils)
 
 <a name="sample_package"></a>
@@ -482,6 +483,24 @@ Convert user to dictionary\.
 **Returns:**
 
 - `Dict[str, Any]`: Dictionary containing all user fields
+<a name="sample_package-stub"></a>
+## 🅼 sample\_package\.stub
+
+Stub module for testing \.pyi file support\.
+
+- **Functions:**
+  - 🅵 [stub\_function](#sample_package-stub-stub_function)
+
+### Functions
+
+<a name="sample_package-stub-stub_function"></a>
+### 🅵 sample\_package\.stub\.stub\_function
+
+```python
+def stub_function(x: int) -> str:
+```
+
+Return the string representation of \`\`x\`\`\.
 <a name="sample_package-utils"></a>
 ## 🅼 sample\_package\.utils
 

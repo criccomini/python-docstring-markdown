@@ -338,24 +338,26 @@ def parse_module_submodules(
     include_private: bool,
 ) -> None:
     """Parse submodules of a module."""
-    for file_path in file_path.parent.iterdir():
-        init_py = file_path / "__init__.py"
-        if init_py.is_file():
+    for entry in file_path.parent.iterdir():
+        init_py = entry / "__init__.py"
+        init_pyi = entry / "__init__.pyi"
+        if init_py.is_file() or init_pyi.is_file():
+            init_file = init_py if init_py.is_file() else init_pyi
             submodule = parse_module(
-                init_py,
-                f"{module.fully_qualified_name}.{file_path.name}",
+                init_file,
+                f"{module.fully_qualified_name}.{entry.name}",
                 include_private,
             )
             module.submodules.append(submodule)
-        elif file_path.suffix == ".py" and file_path.stem != "__init__":
+        elif entry.suffix in {".py", ".pyi"} and entry.stem != "__init__":
             if (
                 not include_private
-                and file_path.name.startswith("_")
-                and not file_path.name.startswith("__")
+                and entry.name.startswith("_")
+                and not entry.name.startswith("__")
             ):
                 continue
             submodule = parse_module(
-                file_path,
+                entry,
                 f"{module.fully_qualified_name}",
                 include_private,
             )
@@ -394,7 +396,7 @@ def parse_module(
 
 
 def crawl_package(package_path: Path, include_private: bool = False) -> Package:
-    """Recursively crawl the package directory, parsing each .py file as a Module.
+    """Recursively crawl the package directory, parsing each .py or .pyi file as a Module.
 
     If include_private is False, items (functions, classes, constants, submodules)
     whose names start with a single underscore (but not dunder names like __init__)
@@ -405,7 +407,9 @@ def crawl_package(package_path: Path, include_private: bool = False) -> Package:
         path=package_path, name=pkg_name, fully_qualified_name=pkg_name, modules=[]
     )
     modules = []
-    for file_path in package_path.glob("*.py"):
+    for file_path in sorted(
+        list(package_path.glob("*.py")) + list(package_path.glob("*.pyi"))
+    ):
         if (
             not include_private
             and file_path.stem.startswith("_")
