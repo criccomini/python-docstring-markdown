@@ -168,7 +168,7 @@ Parse a single module file into a Module dataclass instance\.
 def crawl_package(package_path: Path, include_private: bool = False) -> Package:
 ```
 
-Recursively crawl the package directory, parsing each \.py file as a Module\.
+Recursively crawl the package directory, parsing each \.py or \.pyi file as a Module\.
 
 If include\_private is False, items \(functions, classes, constants, submodules\)
 whose names start with a single underscore \(but not dunder names like \_\_init\_\_\)
